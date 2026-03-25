@@ -1,0 +1,335 @@
+# ========================================
+# AutoClip Git Ignore Configuration
+# ========================================
+
+# ========================================
+# Python
+# ========================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Environments
+.env
+.env.local
+.env.*.local
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# ========================================
+# Node.js
+# ========================================
+
+# Dependencies
+node_modules/
+jspm_packages/
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+.nuxt/
+.cache/
+.vuepress/dist/
+.serverless/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Testing
+coverage/
+.nyc_output
+
+# ========================================
+# IDE and Editors
+# ========================================
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# JetBrains IDEs (IntelliJ, PyCharm, WebStorm)
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+.*.swp
+.*.swo
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# ========================================
+# Operating Systems
+# ========================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ========================================
+# Project Specific
+# ========================================
+
+# Database files
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Data directory (auto-generated on runtime)
+data/
+
+# Output directory (auto-generated on runtime)
+output/
+
+# Log files (auto-generated on runtime)
+logs/
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Media files (optional - uncomment if needed)
+# *.mp4
+# *.avi
+# *.mov
+# *.mkv
+# *.webm
+# *.flv
+
+# Archive files (optional - uncomment if needed)
+# *.zip
+# *.rar
+# *.7z
+# *.tar
+# *.gz
+
+# ========================================
+# Secrets and Credentials
+# ========================================
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+*.env
+
+# API keys and secrets
+secrets/
+credentials/
+*.key
+*.pem
+*.crt
+
+# ========================================
+# Build Artifacts
+# ========================================
+
+# Compiled files
+*.com
+*.class
+*.dll
+*.exe
+*.o
+*.so
+
+# Package files
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# ========================================
+# Database
+# ========================================
+
+# SQLite
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Alembic (uncomment to ignore migration versions)
+# backend/alembic/versions/
+
+# ========================================
+# Celery
+# ========================================
+
+# Celery beat schedule file
+celerybeat-schedule
+celerybeat.pid
+
+# ========================================
+# Redis
+# ========================================
+
+# Redis dump file
+dump.rdb
+
+# ========================================
+# Jupyter Notebooks
+# ========================================
+
+.ipynb_checkpoints
+
+# ========================================
+# Package Lock Files (optional)
+# ========================================
+
+# Uncomment if you want to ignore lock files
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# ========================================
+# Misc
+# ========================================
+
+# Backup files
+*~
+*.bak
+*.backup
+*.old
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+
+# OS generated files
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ========================================
+# End of .gitignore
+# ========================================
