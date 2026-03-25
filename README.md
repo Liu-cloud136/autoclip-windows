@@ -512,17 +512,6 @@ logs/backend.log
 ```
 logs/celery_worker.log
 ```
-
-#### 实时查看日志
-
-```bash
-# Windows PowerShell
-Get-Content logs\backend.log -Wait
-
-# 或使用日志页面
-访问：http://localhost:5173 -> 设置 -> 日志
-```
-
 ---
 
 ## 📊 性能优化
