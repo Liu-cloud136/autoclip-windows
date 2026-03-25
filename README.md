@@ -4,7 +4,7 @@
 
 本项目受到 **[AutoClip](https://github.com/zhouxiaoka/autoclip)** 项目的启发和灵感。**（经过本人与AI斗智斗勇 成功造出了另一坨屎山 建议部署使用时配合codebuddy等支持AI的IDE食用 不会进行后续维护 能不能用纯属天意 我本地部署了还可以用）**
 
-（顺便提一下在B站上的切片子账号 [@憨娜の切片鸽](https://space.bilibili.com/3546763759716636)  官方[@鸽切不鸽德切片组](https://space.bilibili.com/631477152)  常设组长 [@鸽神本鸽]([https://space.bilibili.com/478719788)）
+（顺便提一下在B站上的切片子账号 [@憨娜の切片鸽](https://space.bilibili.com/3546763759716636)  官方[@鸽切不鸽德切片组](https://space.bilibili.com/631477152)  常设组长 [@鸽神本鸽](https://space.bilibili.com/478719788)）
 
 感谢原作者的开创性工作，为本项目提供了宝贵的思路和参考。如果没有原始 AutoClip 项目的启发，本项目将无法诞生。
 
