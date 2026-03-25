@@ -47,7 +47,8 @@ aiohttp==3.10.5
 aiofiles==23.2.1
 
 # Speech Recognition
-bcut-asr
+# bcut-asr is included in backend/bcut-asr directory
+# No need to install from PyPI
 
 # Video Processing
 ffmpeg-python>=0.2.0
