@@ -160,13 +160,22 @@ class OpenAICompatProvider(LLMProvider):
                 **kwargs
             }
             
-            logger.info(f"调用 {self.base_url}，模型: {self.model_name}")
+            logger.info(f"调用 `{self.base_url}`，模型: {self.model_name}")
             
             response = await self._make_request(url, "POST", headers, data)
-            result = await response.json()
+            
+            # 处理响应
+            try:
+                result = await response.json()
+            except json.JSONDecodeError as e:
+                error_text = await response.text()
+                raise Exception(f"API响应解析失败: {error_text}") from e
             
             if response.status != 200:
                 error_msg = result.get("error", {}).get("message", "Unknown error")
+                request_id = result.get("error", {}).get("request_id", "")
+                if request_id:
+                    error_msg = f"{error_msg} (request_id: {request_id})"
                 raise Exception(f"API错误 ({response.status}): {error_msg}")
             
             if "choices" not in result or len(result["choices"]) == 0:

@@ -445,31 +445,63 @@ async def retry_processing(
 ):
     """Retry processing a project from the beginning."""
     try:
-        # 获取项目信息
         project = project_service.get(project_id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         
-        # 检查项目状态 - 允许失败、完成、处理中和等待中状态重试
         if project.status.value not in ["failed", "completed", "processing", "pending"]:
             raise HTTPException(status_code=400, detail="Project is not in failed, completed, processing, or pending status")
         
-        # 重置项目状态
+        from core.celery_app import celery_app
+        from models.task import Task, TaskStatus
+        
+        active_task = project_service.db.query(Task).filter(
+            Task.project_id == project_id,
+            Task.status.in_([TaskStatus.PENDING, TaskStatus.RUNNING])
+        ).order_by(Task.created_at.desc()).first()
+        
+        if active_task and project.status.value == "processing":
+            logger.info(f"项目 {project_id} 有正在运行的任务 {active_task.id}，将停止该任务")
+            try:
+                if active_task.celery_task_id:
+                    celery_app.control.revoke(active_task.celery_task_id, terminate=True)
+                    logger.info(f"已撤销 Celery 任务: {active_task.celery_task_id}")
+            except Exception as e:
+                logger.warning(f"撤销 Celery 任务失败: {e}")
+            
+            active_task.status = TaskStatus.CANCELLED
+            project_service.db.commit()
+        
+        from core.path_utils import get_project_directory
+        project_dir = get_project_directory(project_id)
+        
+        dirs_to_clean = [
+            project_dir / "output",
+            project_dir / "temp",
+        ]
+        
+        cleaned_files = []
+        for dir_path in dirs_to_clean:
+            if dir_path.exists() and dir_path.is_dir():
+                import shutil
+                for item in dir_path.iterdir():
+                    if item.is_file():
+                        try:
+                            item.unlink()
+                            cleaned_files.append(str(item))
+                        except Exception as e:
+                            logger.warning(f"清理文件失败 {item}: {e}")
+        
+        if cleaned_files:
+            logger.info(f"项目 {project_id} 清理了 {len(cleaned_files)} 个中间文件")
+        
         project_service.update_project_status(project_id, "pending")
         
-        # 发送WebSocket通知 - 已禁用WebSocket通知
-        # await websocket_service.send_processing_started(
-        #     project_id=int(project_id),
-        #     message="重新开始处理流程"
-        # )
-        
-        # 获取文件路径并重新提交任务
         from core.path_utils import get_project_raw_directory
         raw_dir = get_project_raw_directory(project_id)
-        video_path = raw_dir / "input.mp4"  # 使用标准的input.mp4文件名
-        srt_path = raw_dir / "input.srt"    # 使用标准的input.srt文件名
+        video_path = raw_dir / "input.mp4"
+        srt_path = raw_dir / "input.srt"
         
-        # 检查视频文件是否存在，如果不存在则提示用户
         if not video_path.exists():
             logger.warning(f"视频文件不存在: {video_path}")
             raise HTTPException(
@@ -477,24 +509,20 @@ async def retry_processing(
                 detail="视频文件不存在，请上传本地视频文件"
             )
         
-        # 字幕文件是可选的
         srt_path_str = str(srt_path) if srt_path.exists() else None
         
-        # 提交Celery任务 - 使用字符串类型的project_id
         celery_task = process_video_pipeline.delay(
             project_id=project_id,
             input_video_path=str(video_path),
             input_srt_path=srt_path_str
         )
         
-        # 创建新的处理任务记录
         from models.task import TaskType
         task_result = processing_service._create_processing_task(
             project_id=project_id,
             task_type=TaskType.VIDEO_PROCESSING
         )
         
-        # 更新任务的Celery任务ID
         task_result.celery_task_id = celery_task.id
         processing_service.db.commit()
         
@@ -503,21 +531,201 @@ async def retry_processing(
             "project_id": project_id,
             "task_id": task_result.id,
             "celery_task_id": celery_task.id,
-            "status": "processing"
+            "status": "processing",
+            "cleaned_files": len(cleaned_files)
         }
         
     except HTTPException:
         raise
     except Exception as e:
-        # 发送错误通知 - 已禁用WebSocket通知
-        # try:
-        #     await websocket_service.send_processing_error(
-        #         project_id=int(project_id),
-        #         error=str(e),
-        #         step="retry_initialization"
-        #     )
-        # except:
-        #     pass
+        logger.error(f"重试处理失败: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{project_id}/retry-step")
+async def retry_from_step(
+    project_id: str,
+    start_step: str = Query(..., description="Starting step (step1_outline, step2_timeline, step3_scoring, step4_recommendation, step5_title, step6_clustering)"),
+    clean_output: bool = Query(False, description="Whether to clean output files before retry"),
+    project_service: ProjectService = Depends(get_project_service),
+    processing_service: ProcessingService = Depends(get_processing_service)
+):
+    """Retry processing from a specific step. Supports completed projects."""
+    try:
+        project = project_service.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        valid_steps = ["step1_outline", "step2_timeline", "step3_scoring", "step4_recommendation", "step5_title", "step6_clustering"]
+        if start_step not in valid_steps:
+            raise HTTPException(status_code=400, detail=f"Invalid step. Valid steps are: {', '.join(valid_steps)}")
+        
+        from services.config_manager import ProcessingStep
+        step_mapping = {
+            "step1_outline": ProcessingStep.STEP1_OUTLINE,
+            "step2_timeline": ProcessingStep.STEP2_TIMELINE,
+            "step3_scoring": ProcessingStep.STEP3_SCORING_ONLY,
+            "step4_recommendation": ProcessingStep.STEP4_RECOMMENDATION,
+            "step5_title": ProcessingStep.STEP5_TITLE,
+            "step6_clustering": ProcessingStep.STEP6_CLUSTERING
+        }
+        
+        processing_step = step_mapping[start_step]
+        
+        from core.path_utils import get_project_directory
+        project_dir = get_project_directory(project_id)
+        
+        cleaned_files = []
+        if clean_output:
+            step_output_map = {
+                "step1_outline": ["step1_outline.json"],
+                "step2_timeline": ["step2_timeline.json"],
+                "step3_scoring": ["step3_only_high_score_clips.json", "step3_only_all_scored.json", "step3_only_checkpoint.json"],
+                "step4_recommendation": ["step4_with_recommendations.json", "step4_all_recommended.json", "step4_recommendation_checkpoint.json"],
+                "step5_title": ["step4_titles.json"],
+                "step6_clustering": ["step5_video_output.json", "clips"]
+            }
+            
+            files_to_clean = step_output_map.get(start_step, [])
+            metadata_dir = project_dir / "metadata"
+            output_dir = project_dir / "output"
+            
+            for file_name in files_to_clean:
+                if file_name == "clips":
+                    clips_dir = output_dir / "clips"
+                    if clips_dir.exists():
+                        import shutil
+                        for item in clips_dir.iterdir():
+                            if item.is_file():
+                                try:
+                                    item.unlink()
+                                    cleaned_files.append(str(item))
+                                except Exception as e:
+                                    logger.warning(f"清理文件失败 {item}: {e}")
+                else:
+                    file_path = metadata_dir / file_name
+                    if file_path.exists():
+                        try:
+                            file_path.unlink()
+                            cleaned_files.append(str(file_path))
+                        except Exception as e:
+                            logger.warning(f"清理文件失败 {file_path}: {e}")
+            
+            if cleaned_files:
+                logger.info(f"项目 {project_id} 清理了 {len(cleaned_files)} 个步骤 {start_step} 的输出文件")
+        
+        from core.path_utils import get_project_raw_directory
+        raw_dir = get_project_raw_directory(project_id)
+        srt_path = raw_dir / "input.srt"
+        
+        srt_path_str = str(srt_path) if srt_path.exists() else None
+        
+        from tasks.processing import process_from_step
+        celery_task = process_from_step.delay(
+            project_id=project_id,
+            start_step=start_step,
+            srt_path=srt_path_str
+        )
+        
+        from models.task import TaskType
+        task_result = processing_service._create_processing_task(
+            project_id=project_id,
+            task_type=TaskType.VIDEO_PROCESSING
+        )
+        
+        task_result.celery_task_id = celery_task.id
+        task_result.task_metadata = {"start_step": start_step, "clean_output": clean_output}
+        processing_service.db.commit()
+        
+        project_service.update_project_status(project_id, "processing")
+        
+        return {
+            "message": f"Processing retry from {start_step} started successfully",
+            "project_id": project_id,
+            "task_id": task_result.id,
+            "celery_task_id": celery_task.id,
+            "start_step": start_step,
+            "status": "processing",
+            "cleaned_files": len(cleaned_files)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"从指定步骤重试失败: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{project_id}/steps-status")
+async def get_steps_status(
+    project_id: str,
+    project_service: ProjectService = Depends(get_project_service)
+):
+    """Get the status of each processing step for a project."""
+    try:
+        project = project_service.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        from core.path_utils import get_project_directory
+        project_dir = get_project_directory(project_id)
+        metadata_dir = project_dir / "metadata"
+        
+        steps_info = [
+            {"step": "step1_outline", "name": "大纲提取", "file": "step1_outline.json", "dir": "metadata", "required": True},
+            {"step": "step2_timeline", "name": "时间定位", "file": "step2_timeline.json", "dir": "metadata", "required": True},
+            {"step": "step3_scoring", "name": "内容评分", "file": "step3_only_high_score_clips.json", "dir": "metadata", "required": True},
+            {"step": "step4_recommendation", "name": "推荐理由", "file": "step4_with_recommendations.json", "dir": "metadata", "required": False},
+            {"step": "step5_title", "name": "标题生成", "file": "step4_titles.json", "dir": "metadata", "required": True},
+            {"step": "step6_clustering", "name": "视频切割", "file": "step5_video_output.json", "dir": "output", "required": True}
+        ]
+        
+        steps_status = []
+        for i, step_info in enumerate(steps_info):
+            step_dir = project_dir / step_info["dir"]
+            file_path = step_dir / step_info["file"]
+            is_completed = file_path.exists()
+            
+            if not is_completed and not step_info.get("required", True):
+                later_steps_completed = any(
+                    project_dir / steps_info[j]["dir"] / steps_info[j]["file"].exists()
+                    for j in range(i + 1, len(steps_info))
+                )
+                if later_steps_completed:
+                    is_completed = True
+            
+            file_size = 0
+            modified_time = None
+            if is_completed and file_path.exists():
+                import os
+                file_stat = file_path.stat()
+                file_size = file_stat.st_size
+                modified_time = file_stat.st_mtime
+            
+            steps_status.append({
+                "step": step_info["step"],
+                "name": step_info["name"],
+                "completed": is_completed,
+                "file_size": file_size,
+                "modified_time": modified_time
+            })
+        
+        clips_dir = project_dir / "output" / "clips"
+        clips_count = 0
+        if clips_dir.exists():
+            clips_count = len(list(clips_dir.glob("*.mp4")))
+        
+        return {
+            "project_id": project_id,
+            "project_status": project.status.value,
+            "steps": steps_status,
+            "clips_count": clips_count
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取步骤状态失败: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -576,12 +784,10 @@ async def get_processing_status(
     try:
         print(f"DEBUG: processing_service = {processing_service}, type = {type(processing_service)}", file=sys.stderr, flush=True)
 
-        # 获取项目信息
         project = project_service.get(project_id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         
-        # 获取最新的任务
         tasks = project.tasks if hasattr(project, 'tasks') else []
         latest_task = None
         if tasks:
@@ -597,8 +803,45 @@ async def get_processing_status(
                 "error_message": None
             }
         
-        # 获取处理状态
-        import sys
+        from services.simple_progress import get_progress_snapshot, STAGE_NAMES
+        
+        redis_progress = get_progress_snapshot(project_id)
+        
+        if redis_progress:
+            stage = redis_progress.get("stage", "")
+            progress = redis_progress.get("percent", 0)
+            message = redis_progress.get("message", "")
+            estimated_remaining = redis_progress.get("estimated_remaining")
+            
+            stage_to_step_map = {
+                "INGEST": 0,
+                "SUBTITLE": 1,
+                "ANALYZE": 2,
+                "HIGHLIGHT": 3,
+                "EXPORT": 4,
+                "DONE": 5
+            }
+            current_step = stage_to_step_map.get(stage, 0)
+            
+            step_name = STAGE_NAMES.get(stage, stage)
+            
+            task_status = latest_task.status.value if hasattr(latest_task.status, 'value') else str(latest_task.status)
+            if stage == "DONE" and progress >= 100:
+                task_status = "completed"
+            elif progress > 0:
+                task_status = "processing"
+            
+            return {
+                "status": task_status,
+                "current_step": current_step,
+                "total_steps": 6,
+                "step_name": step_name,
+                "progress": progress,
+                "message": message,
+                "estimated_remaining": estimated_remaining,
+                "error_message": latest_task.error_message if hasattr(latest_task, 'error_message') else None
+            }
+        
         print(f"DEBUG: 调用 get_processing_status, 参数: project_id={project_id}", file=sys.stderr)
         status = processing_service.get_processing_status(project_id)
         print(f"DEBUG: get_processing_status 返回成功", file=sys.stderr)
@@ -608,8 +851,7 @@ async def get_processing_status(
         import traceback
         error_msg = f"ERROR in get_processing_status: {e}\n{traceback.format_exc()}"
         print(error_msg, file=sys.stderr)
-        with open('/workspace/1/backend/api_error.log', 'a') as f:
-            f.write(error_msg + '\n\n')
+        logger.error(error_msg)
         raise HTTPException(status_code=400, detail=str(e))
 
 

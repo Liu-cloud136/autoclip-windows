@@ -45,8 +45,8 @@ class AppConfig(BaseSettings):
     
     def __init__(self, **data):
         super().__init__(**data)
-        self._load_from_environment()
         self._load_from_config_file()
+        self._load_from_environment()
     
     def _load_from_environment(self):
         """从环境变量加载配置"""

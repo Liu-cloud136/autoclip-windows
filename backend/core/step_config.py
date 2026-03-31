@@ -16,8 +16,9 @@ class StepType(Enum):
     STEP1_OUTLINE = "step1_outline"      # 大纲提取
     STEP2_TIMELINE = "step2_timeline"    # 时间线提取
     STEP3_SCORING = "step3_scoring"      # 内容评分
-    STEP4_TITLE = "step4_title"          # 标题生成
-    STEP5_CLUSTERING = "step5_clustering"  # 切片生成
+    STEP4_RECOMMENDATION = "step4_recommendation"  # 推荐理由生成
+    STEP5_TITLE = "step5_title"          # 标题生成
+    STEP6_CLUSTERING = "step6_clustering"  # 切片生成
 
 @dataclass
 class StepConfig:
@@ -77,8 +78,8 @@ class StepConfigManager:
                 max_tokens=4096,
                 timeout=600
             ),
-            StepType.STEP4_TITLE.value: StepConfig(
-                step_type=StepType.STEP4_TITLE,
+            StepType.STEP4_RECOMMENDATION.value: StepConfig(
+                step_type=StepType.STEP4_RECOMMENDATION,
                 provider="dashscope",
                 model="qwen-plus",
                 temperature=1.0,
@@ -86,8 +87,17 @@ class StepConfigManager:
                 max_tokens=4096,
                 timeout=600
             ),
-            StepType.STEP5_CLUSTERING.value: StepConfig(
-                step_type=StepType.STEP5_CLUSTERING,
+            StepType.STEP5_TITLE.value: StepConfig(
+                step_type=StepType.STEP5_TITLE,
+                provider="dashscope",
+                model="qwen-plus",
+                temperature=1.0,
+                top_p=0.95,
+                max_tokens=4096,
+                timeout=600
+            ),
+            StepType.STEP6_CLUSTERING.value: StepConfig(
+                step_type=StepType.STEP6_CLUSTERING,
                 provider="dashscope",
                 model="qwen-plus",
                 temperature=1.0,
@@ -322,8 +332,8 @@ class StepConfigManager:
                 max_tokens=4096,
                 timeout=600
             ),
-            StepType.STEP4_TITLE.value: StepConfig(
-                step_type=StepType.STEP4_TITLE,
+            StepType.STEP4_RECOMMENDATION.value: StepConfig(
+                step_type=StepType.STEP4_RECOMMENDATION,
                 provider="dashscope",
                 model="qwen-plus",
                 temperature=1.0,
@@ -331,8 +341,17 @@ class StepConfigManager:
                 max_tokens=4096,
                 timeout=600
             ),
-            StepType.STEP5_CLUSTERING.value: StepConfig(
-                step_type=StepType.STEP5_CLUSTERING,
+            StepType.STEP5_TITLE.value: StepConfig(
+                step_type=StepType.STEP5_TITLE,
+                provider="dashscope",
+                model="qwen-plus",
+                temperature=1.0,
+                top_p=0.95,
+                max_tokens=4096,
+                timeout=600
+            ),
+            StepType.STEP6_CLUSTERING.value: StepConfig(
+                step_type=StepType.STEP6_CLUSTERING,
                 provider="dashscope",
                 model="qwen-plus",
                 temperature=1.0,

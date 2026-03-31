@@ -67,8 +67,22 @@ async def process_step(
         raise HTTPException(status_code=400, detail="步骤编号必须在1-6之间")
     
     try:
-        # 这里可以扩展为处理单个步骤
-        result = processing_service.process_project(project_id)
+        # 映射步骤编号到ProcessingStep枚举
+        step_mapping = {
+            1: ProcessingStep.STEP1_OUTLINE,
+            2: ProcessingStep.STEP2_TIMELINE,
+            3: ProcessingStep.STEP3_SCORING_ONLY,
+            4: ProcessingStep.STEP4_RECOMMENDATION,
+            5: ProcessingStep.STEP5_TITLE,
+            6: ProcessingStep.STEP6_CLUSTERING
+        }
+        
+        step = step_mapping.get(step_number)
+        if not step:
+            raise HTTPException(status_code=400, detail="无效的步骤编号")
+        
+        # 执行单个步骤
+        result = processing_service.execute_single_step(project_id, step)
         return {
             "message": f"步骤 {step_number} 处理完成",
             "project_id": project_id,

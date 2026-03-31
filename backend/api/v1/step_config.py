@@ -283,6 +283,135 @@ async def reset_all_step_configs():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"重置所有步骤配置失败: {e}")
 
+@router.post("/test-response-time/{step_type}")
+async def test_step_response_time(step_type: str):
+    """测试指定步骤配置的模型响应时间"""
+    import time
+    import asyncio
+    
+    try:
+        try:
+            step_type_enum = StepType(step_type)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"不支持的步骤类型: {step_type}"
+            )
+        
+        config_manager = get_step_config_manager()
+        config = config_manager.get_step_config(step_type_enum)
+        
+        if not config.enabled:
+            return {
+                "success": False,
+                "error": "该步骤已禁用",
+                "response_time": None
+            }
+        
+        from core.llm_providers import ProviderType, LLMProviderFactory
+        from core.llm_manager import get_llm_manager
+        
+        llm_manager = get_llm_manager()
+        provider_configs = llm_manager.settings.get("provider_configs", {})
+        
+        provider_key = config.provider
+        
+        if provider_key not in provider_configs:
+            return {
+                "success": False,
+                "error": f"未找到提供商配置: {provider_key}",
+                "response_time": None
+            }
+        
+        provider_config = provider_configs[provider_key]
+        api_key = provider_config.get("api_key", "")
+        base_url = provider_config.get("base_url", "")
+        api_format = provider_config.get("api_format", "openai")
+        
+        if not api_key:
+            return {
+                "success": False,
+                "error": "未配置 API 密钥",
+                "response_time": None
+            }
+        
+        test_prompt = "请回复'测试成功'三个字，不要回复其他内容。"
+        
+        start_time = time.time()
+        
+        try:
+            if provider_key.startswith("custom-"):
+                if provider_key not in LLMProviderFactory._custom_providers:
+                    LLMProviderFactory.add_custom_provider_config(
+                        provider_id=provider_key,
+                        api_format=api_format,
+                        base_url=base_url,
+                        default_model=config.model
+                    )
+                
+                provider_instance = LLMProviderFactory.create_provider_from_id(
+                    provider_id=provider_key,
+                    api_key=api_key,
+                    model_name=config.model,
+                    base_url=base_url,
+                    proxy_url=llm_manager.settings.get("proxy_url", ""),
+                    timeout=30
+                )
+            else:
+                try:
+                    provider_type = ProviderType(provider_key)
+                except ValueError:
+                    return {
+                        "success": False,
+                        "error": f"不支持的提供商类型: {provider_key}",
+                        "response_time": None
+                    }
+                
+                provider_instance = LLMProviderFactory.create_provider(
+                    provider_type, api_key, config.model,
+                    base_url=base_url,
+                    proxy_url=llm_manager.settings.get("proxy_url", ""),
+                    timeout=30
+                )
+            
+            messages = [{"role": "user", "content": test_prompt}]
+            
+            response = await asyncio.wait_for(
+                provider_instance.call(
+                    messages,
+                    temperature=0.1,
+                    max_tokens=50
+                ),
+                timeout=30
+            )
+            
+            end_time = time.time()
+            response_time = round((end_time - start_time) * 1000, 2)
+            
+            return {
+                "success": True,
+                "response_time": response_time,
+                "model": config.model,
+                "provider": config.provider,
+                "reply": response.content[:100] if response.content else ""
+            }
+            
+        except asyncio.TimeoutError:
+            return {
+                "success": False,
+                "error": "请求超时（30秒）",
+                "response_time": None
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "response_time": None
+            }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"测试响应时间失败: {e}")
+
 # 参数化路由必须放在具体路由之后！
 
 @router.get("/{step_type}")
@@ -433,8 +562,9 @@ def _get_step_display_name(step_value: str) -> str:
         "step1_outline": "大纲提取",
         "step2_timeline": "时间线提取",
         "step3_scoring": "内容评分",
-        "step4_title": "标题生成",
-        "step5_clustering": "切片生成"
+        "step4_recommendation": "视频简介生成",
+        "step5_title": "标题生成",
+        "step6_clustering": "切片生成"
     }
     return display_names.get(step_value, step_value)
 
@@ -444,7 +574,8 @@ def _get_step_description(step_value: str) -> str:
         "step1_outline": "从视频字幕中提取主要话题和结构",
         "step2_timeline": "为每个话题定位具体的时间区间",
         "step3_scoring": "评估每个话题的质量和推荐度",
-        "step4_title": "为高质量内容生成吸引人的标题",
-        "step5_clustering": "生成最终的视频切片（无需AI配置）"
+        "step4_recommendation": "为每个话题生成视频简介",
+        "step5_title": "为高质量内容生成吸引人的标题",
+        "step6_clustering": "生成最终的视频切片（无需AI配置）"
     }
     return descriptions.get(step_value, "")

@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Card, Tag, Button, Space, Typography, Progress, Popconfirm, message, Tooltip } from 'antd'
-import { PlayCircleOutlined, DeleteOutlined, EyeOutlined, ReloadOutlined, LoadingOutlined } from '@ant-design/icons'
+import { PlayCircleOutlined, DeleteOutlined, EyeOutlined, ReloadOutlined, LoadingOutlined, CheckCircleOutlined, ExclamationCircleOutlined, SettingOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { Project } from '../store/useProjectStore'
 import { projectApi } from '../services/api'
 import { UnifiedStatusBar } from './UnifiedStatusBar'
+import RetryStepDialog from './RetryStepDialog'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import timezone from 'dayjs/plugin/timezone'
@@ -66,6 +67,10 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
   const [isDeleting, setIsDeleting] = useState(false)
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [currentLogIndex, setCurrentLogIndex] = useState(0)
+  const [retryStatus, setRetryStatus] = useState<'idle' | 'success' | 'error'>('idle')
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastRetryTimeRef = useRef<number>(0)
+  const [showRetryDialog, setShowRetryDialog] = useState(false)
 
   // 缩略图缓存管理
   const thumbnailCacheKey = `thumbnail_${project.id}`
@@ -249,6 +254,15 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
     return () => clearInterval(interval)
   }, [logs.length])
 
+  // 清理重试状态定时器
+  useEffect(() => {
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current)
+      }
+    }
+  }, [])
+
   const getStatusColor = (status: Project['status']) => {
     switch (status) {
       case 'completed': return 'success'
@@ -287,14 +301,42 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
   const handleRetry = async () => {
     if (isRetrying) return
     
+    const now = Date.now()
+    const timeSinceLastRetry = now - lastRetryTimeRef.current
+    const RETRY_COOLDOWN = 3000
+    
+    if (timeSinceLastRetry < RETRY_COOLDOWN) {
+      message.warning(`请等待 ${Math.ceil((RETRY_COOLDOWN - timeSinceLastRetry) / 1000)} 秒后再重试`)
+      return
+    }
+    
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current)
+      retryTimeoutRef.current = null
+    }
+    
+    lastRetryTimeRef.current = now
     setIsRetrying(true)
+    setRetryStatus('idle')
+    
     try {
       if (onRetry) {
         await onRetry(project.id)
       }
+      setRetryStatus('success')
+      message.success('任务已成功提交')
+      
+      retryTimeoutRef.current = setTimeout(() => {
+        setRetryStatus('idle')
+      }, 2000)
     } catch (error) {
       console.error('重试失败:', error)
+      setRetryStatus('error')
       message.error('重试失败，请稍后再试')
+      
+      retryTimeoutRef.current = setTimeout(() => {
+        setRetryStatus('idle')
+      }, 3000)
     } finally {
       setIsRetrying(false)
     }
@@ -467,10 +509,20 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
               </div>
 
               {/* 重试按钮 */}
-              <Tooltip title={project.status === 'pending' ? "开始处理" : "重新提交任务"}>
+              <Tooltip title={
+                project.status === 'pending' ? "开始处理" : 
+                project.status === 'processing' ? "重新处理（当前任务会停止）" :
+                project.status === 'error' ? "重新尝试处理" :
+                "重新处理项目"
+              }>
                 <Button
                   type="text"
-                  icon={<ReloadOutlined />}
+                  icon={
+                    isRetrying ? <LoadingOutlined /> :
+                    retryStatus === 'success' ? <CheckCircleOutlined /> :
+                    retryStatus === 'error' ? <ExclamationCircleOutlined /> :
+                    <ReloadOutlined />
+                  }
                   loading={isRetrying}
                   onClick={(e) => {
                     e.stopPropagation()
@@ -480,12 +532,21 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
                     width: '20px',
                     height: '20px',
                     borderRadius: '3px',
-                    color: '#1890ff',
-                    border: '1px solid rgba(24, 144, 255, 0.5)',
-                    background: 'rgba(24, 144, 255, 0.1)',
+                    color: retryStatus === 'success' ? '#52c41a' : 
+                           retryStatus === 'error' ? '#ff4d4f' :
+                           '#1890ff',
+                    border: `1px solid ${
+                      retryStatus === 'success' ? 'rgba(82, 196, 26, 0.5)' : 
+                      retryStatus === 'error' ? 'rgba(255, 77, 79, 0.5)' :
+                      'rgba(24, 144, 255, 0.5)'
+                    }`,
+                    background: retryStatus === 'success' ? 'rgba(82, 196, 26, 0.1)' : 
+                               retryStatus === 'error' ? 'rgba(255, 77, 79, 0.1)' :
+                               'rgba(24, 144, 255, 0.1)',
                     padding: 0,
                     minWidth: '20px',
-                    fontSize: '10px'
+                    fontSize: '10px',
+                    transition: 'all 0.3s ease'
                   }}
                 />
               </Tooltip>
@@ -562,6 +623,31 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
                 </div>
               </div>
 
+              {/* 已完成项目的重试按钮 */}
+              {project.status === 'completed' && (
+                <Tooltip title="重新处理">
+                  <Button
+                    type="text"
+                    icon={<SettingOutlined />}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setShowRetryDialog(true)
+                    }}
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      borderRadius: '3px',
+                      color: '#52c41a',
+                      border: '1px solid rgba(82, 196, 26, 0.5)',
+                      background: 'rgba(82, 196, 26, 0.1)',
+                      padding: 0,
+                      minWidth: '20px',
+                      fontSize: '10px'
+                    }}
+                  />
+                </Tooltip>
+              )}
+
               {/* 删除按钮 */}
               <Popconfirm
                 title="确定要删除这个项目吗？"
@@ -604,6 +690,17 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
 
         </div>
       </div>
+
+      <RetryStepDialog
+        visible={showRetryDialog}
+        projectId={project.id}
+        projectName={project.name}
+        projectStatus={project.status}
+        onClose={() => setShowRetryDialog(false)}
+        onRetry={async (startStep: string, cleanOutput: boolean) => {
+          await projectApi.retryFromStep(project.id, startStep, cleanOutput)
+        }}
+      />
     </Card>
   )
 }

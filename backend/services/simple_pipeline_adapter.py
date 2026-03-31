@@ -11,7 +11,8 @@ from pathlib import Path
 from services.simple_progress import emit_progress, clear_progress
 from pipeline.step1_outline import run_step1_outline
 from pipeline.step2_timeline import run_step2_timeline
-from pipeline.step3_scoring import run_step3_scoring
+from pipeline.step3_scoring_only import run_step3_scoring_only
+from pipeline.step4_recommendation import run_step4_recommendation
 from pipeline.step4_title import run_step4_title
 from pipeline.step5_video import run_step5_video
 
@@ -172,7 +173,8 @@ class SimplePipelineAdapter:
             step1_checkpoint = CheckpointManager(metadata_dir, "step1")
             step2_checkpoint = CheckpointManager(metadata_dir, "step2")
             step3_checkpoint = CheckpointManager(metadata_dir, "step3")
-            step4_checkpoint = CheckpointManager(metadata_dir, "step4")
+            step4_checkpoint = CheckpointManager(metadata_dir, "step4_recommendation")
+            step4_title_checkpoint = CheckpointManager(metadata_dir, "step4_title")
             step5_checkpoint = CheckpointManager(metadata_dir, "step5")
             
             # 检查各步骤是否已完成
@@ -180,9 +182,10 @@ class SimplePipelineAdapter:
             step2_completed = step2_checkpoint.load_checkpoint()
             step3_completed = step3_checkpoint.load_checkpoint()
             step4_completed = step4_checkpoint.load_checkpoint()
+            step4_title_completed = step4_title_checkpoint.load_checkpoint()
             step5_completed = step5_checkpoint.load_checkpoint()
             
-            logger.info(f"各步骤完成状态: step1={len(step1_completed)}, step2={len(step2_completed)}, step3={len(step3_completed)}, step4={len(step4_completed)}, step5={len(step5_completed)}")
+            logger.info(f"各步骤完成状态: step1={len(step1_completed)}, step2={len(step2_completed)}, step3={len(step3_completed)}, step4={len(step4_completed)}, step4_title={len(step4_title_completed)}, step5={len(step5_completed)}")
             self._flush_logs()
             
             # 阶段1: 素材准备
@@ -266,7 +269,7 @@ class SimplePipelineAdapter:
             if not step3_completed and timeline_data:
                 logger.info("执行Step 3: 内容评分（并发模式，3个线程同时评分）")
                 self._flush_logs()
-                scored_clips = run_step3_scoring(
+                scored_clips = run_step3_scoring_only(
                     metadata_dir / "step2_timeline.json",
                     metadata_dir=metadata_dir,
                     progress_callback=lambda p, m: self._emit_progress("ANALYZE", m, subpercent=50 + p/2),  # 将0-100映射到50-100
@@ -286,40 +289,91 @@ class SimplePipelineAdapter:
             else:
                 logger.warning("没有时间线数据，跳过内容评分")
                 self._flush_logs()
-                scored_file = metadata_dir / "step3_high_score_clips.json"
+                scored_file = metadata_dir / "step3_only_high_score_clips.json"
                 import json
                 with open(scored_file, 'w', encoding='utf-8') as f:
                     json.dump([], f, ensure_ascii=False, indent=2)
                 scored_clips = []
                 self._emit_progress("ANALYZE", "内容分析完成", subpercent=100)
+            
+            # Step 4: 推荐理由生成（如果未完成）
+            if not step4_completed and scored_clips:
+                logger.info("执行Step 4: 推荐理由生成")
+                self._flush_logs()
+                try:
+                    recommended_clips = run_step4_recommendation(
+                        metadata_dir / "step3_only_high_score_clips.json",
+                        metadata_dir=metadata_dir
+                    )
+                    self._flush_logs()
+                    
+                    # 保存Step 4的断点状态
+                    step4_checkpoint.save_checkpoint(0, success=True, item_info={"step": "step4_recommendation", "status": "completed"})
+                    step4_checkpoint.save_intermediate_results(recommended_clips)
+                    logger.info("Step 4 断点已保存")
+                    self._flush_logs()
+                except Exception as e:
+                    logger.error(f"Step 4 推荐理由生成失败: {e}")
+                    self._flush_logs()
+                    # 创建空的推荐理由文件，确保步骤5不会因为找不到文件而失败
+                    recommended_file = metadata_dir / "step4_with_recommendations.json"
+                    import json
+                    with open(recommended_file, 'w', encoding='utf-8') as f:
+                        json.dump(scored_clips, f, ensure_ascii=False, indent=2)
+                    recommended_clips = scored_clips
+                    logger.info("已创建空的推荐理由文件，步骤5将直接使用步骤3的输出")
+            elif step4_completed:
+                logger.info("Step 4 已完成，加载推荐理由结果")
+                recommended_clips = step4_checkpoint.load_intermediate_results()
+            else:
+                logger.warning("没有评分数据，跳过推荐理由生成")
+                self._flush_logs()
+                recommended_file = metadata_dir / "step4_with_recommendations.json"
+                import json
+                with open(recommended_file, 'w', encoding='utf-8') as f:
+                    json.dump([], f, ensure_ascii=False, indent=2)
+                recommended_clips = []
 
             # 阶段4: 片段定位
             self._emit_progress("HIGHLIGHT", "开始片段定位")
             
-            # Step 4: 标题生成（如果未完成）
-            if not step4_completed and scored_clips:
-                logger.info("执行Step 4: 标题生成")
+            # Step 5: 标题生成（如果未完成）
+            if not step4_title_completed and recommended_clips:
+                logger.info("执行Step 5: 标题生成")
                 self._flush_logs()
-                titled_clips = run_step4_title(
-                    metadata_dir / "step3_high_score_clips.json",
-                    metadata_dir=str(metadata_dir)
-                )
-                self._flush_logs()
-                
-                # 保存Step 4的断点状态
-                step4_checkpoint.save_checkpoint(0, success=True, item_info={"step": "step4_title", "status": "completed"})
-                step4_checkpoint.save_intermediate_results(titled_clips)
-                logger.info("Step 4 断点已保存")
-                self._flush_logs()
-                self._emit_progress("HIGHLIGHT", "标题生成完成", subpercent=40)
-                self._emit_progress("HIGHLIGHT", "片段定位完成", subpercent=100)
-            elif step4_completed:
-                logger.info("Step 4 已完成，加载标题结果")
-                titled_clips = step4_checkpoint.load_intermediate_results()
+                try:
+                    titled_clips = run_step4_title(
+                        metadata_dir / "step4_with_recommendations.json",
+                        metadata_dir=str(metadata_dir)
+                    )
+                    self._flush_logs()
+                    
+                    # 保存Step 5的断点状态
+                    step4_title_checkpoint.save_checkpoint(0, success=True, item_info={"step": "step4_title", "status": "completed"})
+                    step4_title_checkpoint.save_intermediate_results(titled_clips)
+                    logger.info("Step 5 断点已保存")
+                    self._flush_logs()
+                    self._emit_progress("HIGHLIGHT", "标题生成完成", subpercent=40)
+                    self._emit_progress("HIGHLIGHT", "片段定位完成", subpercent=100)
+                except Exception as e:
+                    logger.error(f"Step 5 标题生成失败: {e}")
+                    self._flush_logs()
+                    # 如果标题生成失败，直接使用步骤3的输出作为标题
+                    titles_file = metadata_dir / "step4_titles.json"
+                    import json
+                    with open(titles_file, 'w', encoding='utf-8') as f:
+                        json.dump(scored_clips, f, ensure_ascii=False, indent=2)
+                    titled_clips = scored_clips
+                    logger.info("已创建空的标题文件，步骤6将直接使用步骤3的输出")
+                    self._emit_progress("HIGHLIGHT", "标题生成失败，使用步骤3数据", subpercent=40)
+                    self._emit_progress("HIGHLIGHT", "片段定位完成", subpercent=100)
+            elif step4_title_completed:
+                logger.info("Step 5 已完成，加载标题结果")
+                titled_clips = step4_title_checkpoint.load_intermediate_results()
                 self._emit_progress("HIGHLIGHT", "标题生成完成（已缓存）", subpercent=40)
                 self._emit_progress("HIGHLIGHT", "片段定位完成", subpercent=100)
             else:
-                logger.warning("没有评分数据，跳过标题生成")
+                logger.warning("没有推荐理由数据，跳过标题生成")
                 self._flush_logs()
                 titles_file = metadata_dir / "step4_titles.json"
                 import json

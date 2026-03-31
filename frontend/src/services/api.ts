@@ -98,7 +98,7 @@ export interface UploadFilesRequest {
 }
 
 export interface UploadFilesOptions {
-  onUploadProgress?: (progressEvent: { loaded: number; total: number }) => void
+  onUploadProgress?: (progressEvent: import('axios').AxiosProgressEvent) => void
 }
 
 export interface ProcessingStatus {
@@ -250,8 +250,37 @@ export const projectApi = {
   },
 
   // 重试处理项目
-  retryProcessing: async (id: string): Promise<void> => {
-    await api.post(`projects/${id}/retry`)
+  retryProcessing: async (id: string): Promise<{message: string, project_id: string, task_id: string, celery_task_id: string, status: string, cleaned_files?: number}> => {
+    return api.post(`projects/${id}/retry`)
+  },
+
+  // 从指定步骤重试处理项目
+  retryFromStep: async (id: string, startStep: string, cleanOutput: boolean = true): Promise<{
+    message: string
+    project_id: string
+    task_id: string
+    celery_task_id: string
+    start_step: string
+    status: string
+    cleaned_files: number
+  }> => {
+    return api.post(`projects/${id}/retry-step?start_step=${startStep}&clean_output=${cleanOutput}`)
+  },
+
+  // 获取项目步骤状态
+  getStepsStatus: async (id: string): Promise<{
+    project_id: string
+    project_status: string
+    steps: Array<{
+      step: string
+      name: string
+      completed: boolean
+      file_size: number
+      modified_time: number | null
+    }>
+    clips_count: number
+  }> => {
+    return api.get(`projects/${id}/steps-status`)
   },
 
   // 获取处理状态

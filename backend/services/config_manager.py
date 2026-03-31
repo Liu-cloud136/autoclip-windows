@@ -24,8 +24,10 @@ class ProcessingStep(str, Enum):
     STEP1_OUTLINE = "step1_outline"
     STEP2_TIMELINE = "step2_timeline"
     STEP3_SCORING = "step3_scoring"
-    STEP4_TITLE = "step4_title"
-    STEP5_CLUSTERING = "step5_clustering"  # 切片生成
+    STEP3_SCORING_ONLY = "step3_scoring_only"
+    STEP4_RECOMMENDATION = "step4_recommendation"
+    STEP5_TITLE = "step5_title"
+    STEP6_CLUSTERING = "step6_clustering"  # 切片生成
 
 
 @dataclass
@@ -201,7 +203,7 @@ class ProjectConfigManager:
         params = self.config.get("processing_params", {})
         return ProcessingParams(
             chunk_size=params.get("chunk_size", 5000),
-            min_score_threshold=params.get("min_score_threshold", 0.7),
+            min_score_threshold=params.get("min_score_threshold", 0.8),
             min_topic_duration_minutes=params.get("min_topic_duration_minutes", 2),
             max_topic_duration_minutes=params.get("max_topic_duration_minutes", 12),
             target_topic_duration_minutes=params.get("target_topic_duration_minutes", 5),

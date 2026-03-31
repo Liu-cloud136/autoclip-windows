@@ -138,6 +138,21 @@ class StepConfigApi {
     const response = await api.get(`/prompt/${stepType}`)
     return response.prompt || null
   }
+
+  /**
+   * 测试步骤配置的模型响应时间
+   */
+  async testResponseTime(stepType: string): Promise<{
+    success: boolean
+    response_time: number | null
+    model?: string
+    provider?: string
+    reply?: string
+    error?: string
+  }> {
+    const response = await api.post(`${this.baseUrl}/test-response-time/${stepType}`)
+    return response
+  }
 }
 
 export const stepConfigApi = new StepConfigApi()

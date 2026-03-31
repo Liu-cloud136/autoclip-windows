@@ -323,7 +323,7 @@ const ClipDetailPage: React.FC = () => {
             {clip.generated_title || '-'}
           </Descriptions.Item>
           {clip.recommend_reason && (
-            <Descriptions.Item label="推荐理由" span={2}>
+            <Descriptions.Item label="视频简介" span={2}>
               <Paragraph>{clip.recommend_reason}</Paragraph>
             </Descriptions.Item>
           )}

@@ -1,4 +1,4 @@
-"""Step 3: 内容评分 - 对每个话题进行质量评分，筛选出高质量内容（仅评分，不生成推荐理由）"""
+"""Step 3: 单独评分步骤 - 只进行评分，不生成推荐理由"""
 import json
 import logging
 import re
@@ -18,8 +18,8 @@ from services.concurrency_manager import with_async_concurrency_limit
 
 logger = logging.getLogger(__name__)
 
-class ClipScorer:
-    """内容评分器"""
+class ClipScorerOnly:
+    """单独内容评分器"""
 
     def __init__(self, prompt_files: Optional[Dict[str, Path]] = None,
                  progress_callback: Optional[Callable[[int, str], None]] = None,
@@ -45,7 +45,7 @@ class ClipScorer:
             self.scoring_prompt = f.read()
         
         # 创建用于存放LLM原始输出的目录
-        self.llm_raw_output_dir = self.metadata_dir / "step3_llm_raw_output"
+        self.llm_raw_output_dir = self.metadata_dir / "step3_only_llm_raw_output"
         self.llm_raw_output_dir.mkdir(parents=True, exist_ok=True)
     
     def _validate_llm_response(self, parsed_list: List[Dict], expected_count: int) -> tuple[bool, List[str]]:
@@ -90,7 +90,7 @@ class ClipScorer:
             logger.warning("时间线数据为空，无法评分")
             return []
 
-        logger.info(f"开始为 {len(timeline_data)} 个切片进行批量评分（并发模式，线程数={self.max_workers}, 断点续传={self.enable_checkpoint}）...")
+        logger.info(f"开始为 {len(timeline_data)} 个切片进行单独批量评分（并发模式，线程数={self.max_workers}, 断点续传={self.enable_checkpoint}）...")
 
         # 1. 按 chunk_index 对所有 timeline 数据进行分组
         timeline_by_chunk = defaultdict(list)
@@ -114,7 +114,7 @@ class ClipScorer:
         # 加载已有的评分结果
         if completed_chunks:
             try:
-                all_scored_path = self.metadata_dir / "step3_all_scored.json"
+                all_scored_path = self.metadata_dir / "step3_only_all_scored.json"
                 if all_scored_path.exists():
                     with open(all_scored_path, 'r', encoding='utf-8') as f:
                         all_scored_clips = json.load(f)
@@ -202,8 +202,6 @@ class ClipScorer:
 
         # 5. 不清理断点，保留用于断点续传
         # 只有在整个流程完全成功后才应该清理断点
-        # if self.enable_checkpoint:
-        #     self._cleanup_checkpoint()
 
         return all_scored_clips
 
@@ -271,8 +269,6 @@ class ClipScorer:
             for clip in chunk_items:
                 clip['final_score'] = 50  # 使用中等分数而不是0
             return chunk_items
-
-
 
     async def _get_llm_evaluation_async(self, clips: List[Dict]) -> List[Dict]:
         """
@@ -383,7 +379,7 @@ class ClipScorer:
 
     def _load_checkpoint(self) -> set:
         """加载断点文件，返回已完成的块索引集合"""
-        checkpoint_file = self.metadata_dir / "step3_checkpoint.json"
+        checkpoint_file = self.metadata_dir / "step3_only_checkpoint.json"
         if not checkpoint_file.exists():
             return set()
 
@@ -399,7 +395,7 @@ class ClipScorer:
 
     def _save_checkpoint(self, chunk_index: int, success: bool = True):
         """保存断点文件"""
-        checkpoint_file = self.metadata_dir / "step3_checkpoint.json"
+        checkpoint_file = self.metadata_dir / "step3_only_checkpoint.json"
 
         try:
             # 加载现有数据
@@ -434,7 +430,7 @@ class ClipScorer:
     def _save_intermediate_results(self, all_scored_clips: List[Dict]):
         """保存中间结果"""
         try:
-            all_scored_path = self.metadata_dir / "step3_all_scored.json"
+            all_scored_path = self.metadata_dir / "step3_only_all_scored.json"
             with open(all_scored_path, 'w', encoding='utf-8') as f:
                 json.dump(all_scored_clips, f, ensure_ascii=False, indent=2)
             logger.debug(f"中间结果已保存，共 {len(all_scored_clips)} 个切片")
@@ -443,7 +439,7 @@ class ClipScorer:
 
     def _cleanup_checkpoint(self):
         """清理断点文件"""
-        checkpoint_file = self.metadata_dir / "step3_checkpoint.json"
+        checkpoint_file = self.metadata_dir / "step3_only_checkpoint.json"
         try:
             if checkpoint_file.exists():
                 checkpoint_file.unlink()
@@ -457,11 +453,11 @@ class ClipScorer:
             json.dump(scored_clips, f, ensure_ascii=False, indent=2)
         logger.info(f"评分结果已保存到: {output_path}")
 
-def run_step3_scoring(timeline_path: Path, metadata_dir: Path = None, output_path: Optional[Path] = None,
-                     prompt_files: Dict = None, progress_callback: Optional[Callable[[int, str], None]] = None,
-                     max_workers: int = 3, enable_checkpoint: bool = True) -> List[Dict]:
+def run_step3_scoring_only(timeline_path: Path, metadata_dir: Path = None, output_path: Optional[Path] = None,
+                           prompt_files: Dict = None, progress_callback: Optional[Callable[[int, str], None]] = None,
+                           max_workers: int = 3, enable_checkpoint: bool = True) -> List[Dict]:
     """
-    运行Step 3: 内容评分与筛选（支持并发处理、断点续传和进度回调）
+    运行Step 3: 单独内容评分（支持并发处理、断点续传和进度回调）
 
     Args:
         timeline_path: 时间线文件路径
@@ -480,8 +476,8 @@ def run_step3_scoring(timeline_path: Path, metadata_dir: Path = None, output_pat
         timeline_data = json.load(f)
 
     # 创建评分器（启用并发和断点续传）
-    scorer = ClipScorer(prompt_files, progress_callback, max_workers=max_workers,
-                       enable_checkpoint=enable_checkpoint, metadata_dir=metadata_dir)
+    scorer = ClipScorerOnly(prompt_files, progress_callback, max_workers=max_workers,
+                           enable_checkpoint=enable_checkpoint, metadata_dir=metadata_dir)
 
     # 评分
     scored_clips = scorer.score_clips(timeline_data)
@@ -496,12 +492,12 @@ def run_step3_scoring(timeline_path: Path, metadata_dir: Path = None, output_pat
         metadata_dir = config.paths.output_dir / "metadata"
 
     # 保存所有评分后的片段（用于调试和分析）
-    all_scored_path = metadata_dir / "step3_all_scored.json"
+    all_scored_path = metadata_dir / "step3_only_all_scored.json"
     scorer.save_scores(scored_clips, all_scored_path)
 
     # 保存筛选后的高分片段（用于后续步骤）
     if output_path is None:
-        output_path = metadata_dir / "step3_high_score_clips.json"
+        output_path = metadata_dir / "step3_only_high_score_clips.json"
 
     scorer.save_scores(high_score_clips, output_path)
 

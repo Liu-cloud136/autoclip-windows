@@ -459,10 +459,20 @@ class DataSyncService:
                 processing_config["timeline"] = {"segments": timeline_data}
                 logger.info(f"同步时间线数据: {len(timeline_data)} 个片段")
             
-            scoring_data = self._read_json_file(metadata_dir / "step3_high_score_clips.json")
+            # 尝试读取单独评分的文件，如果不存在则尝试读取标准评分文件
+            scoring_file_path = metadata_dir / "step3_only_high_score_clips.json"
+            logger.info(f"检查评分文件: {scoring_file_path}")
+            scoring_data = self._read_json_file(scoring_file_path)
+            logger.info(f"读取评分数据结果: {scoring_data}")
+            if not scoring_data:
+                logger.info("尝试读取标准评分文件")
+                scoring_data = self._read_json_file(metadata_dir / "step3_high_score_clips.json")
+                logger.info(f"读取标准评分数据结果: {scoring_data}")
             if scoring_data:
                 processing_config["scoring"] = {"high_score_clips": scoring_data}
                 logger.info(f"同步评分数据: {len(scoring_data)} 个高分片段")
+            else:
+                logger.warning("未找到评分数据")
             
             titles_data = self._read_json_file(metadata_dir / "step4_titles.json")
             if titles_data:
@@ -475,6 +485,7 @@ class DataSyncService:
                 ("step1_outline_raw", "step1_llm_raw_output"),
                 ("step2_timeline_raw", "step2_llm_raw_output"),
                 ("step3_scoring_raw", "step3_llm_raw_output"),
+                ("step3_scoring_only_raw", "step3_only_llm_raw_output"),
                 ("step4_title_raw", "step4_llm_raw_output")
             ]:
                 raw_dir = metadata_dir / file_name

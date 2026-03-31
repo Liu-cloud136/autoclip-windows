@@ -122,7 +122,7 @@ async def upload_files(
                 file_info = await FileUploadHandler.save_uploaded_file(file, temp_path)
 
                 # 使用存储服务保存文件
-                saved_path = storage_service.save_file(temp_path, safe_filename, file_type)
+                saved_path = storage_service.save_project_file(temp_path, file_type)
 
                 # 更新项目数据库记录
                 if file_type == "video":
@@ -232,7 +232,13 @@ async def download_clip_file(
         return FileResponse(
             path=str(file_path),
             filename=f"clip_{clip_id}.mp4",
-            media_type="video/mp4"
+            media_type="video/mp4",
+            headers={
+                "Accept-Ranges": "bytes",  # 支持范围请求，加速下载
+                "Cache-Control": "public, max-age=86400",  # 缓存24小时
+                "Content-Length": str(file_path.stat().st_size),  # 提供文件大小
+                "X-Accel-Buffering": "no"  # 禁用缓冲，直接流式传输
+            }
         )
         
     except HTTPException:

@@ -59,7 +59,7 @@ class TitleGenerator:
                     try:
                         return new_loop.run_until_complete(
                             self.step_aware_llm_client.call_for_step(
-                                StepType.STEP4_TITLE,
+                                StepType.STEP5_TITLE,
                                 prompt=prompt,
                                 input_data=input_data
                             )
@@ -73,7 +73,7 @@ class TitleGenerator:
             else:
                 return loop.run_until_complete(
                     self.step_aware_llm_client.call_for_step(
-                        StepType.STEP4_TITLE,
+                        StepType.STEP5_TITLE,
                         prompt=prompt,
                         input_data=input_data
                     )
@@ -84,7 +84,7 @@ class TitleGenerator:
             try:
                 return loop.run_until_complete(
                     self.step_aware_llm_client.call_for_step(
-                        StepType.STEP4_TITLE,
+                        StepType.STEP5_TITLE,
                         prompt=prompt,
                         input_data=input_data
                     )
@@ -102,7 +102,7 @@ class TitleGenerator:
 
         # 初始化断点管理器
         self.checkpoint_manager = CheckpointManager(
-            self.metadata_dir, "step4", self.enable_checkpoint
+            self.metadata_dir, "step4_title", self.enable_checkpoint
         )
     
     def generate_titles(self, high_score_clips: List[Dict]) -> List[Dict]:

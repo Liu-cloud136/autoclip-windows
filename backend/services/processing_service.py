@@ -276,9 +276,10 @@ class ProcessingService:
             "step1_outline": ProcessingStep.STEP1_OUTLINE,
             "step2_timeline": ProcessingStep.STEP2_TIMELINE,
             "step3_scoring": ProcessingStep.STEP3_SCORING,
-            "step4_title": ProcessingStep.STEP4_TITLE,
-            "step5_clustering": ProcessingStep.STEP5_CLUSTERING,
-            "step6_video": ProcessingStep.STEP6_VIDEO
+            "step3_scoring_only": ProcessingStep.STEP3_SCORING_ONLY,
+            "step4_recommendation": ProcessingStep.STEP4_RECOMMENDATION,
+            "step5_title": ProcessingStep.STEP5_TITLE,
+            "step6_clustering": ProcessingStep.STEP6_CLUSTERING
         }
         
         if start_step not in step_mapping:

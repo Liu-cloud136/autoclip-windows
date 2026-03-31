@@ -10,7 +10,7 @@ from pathlib import Path
 from .base import BaseRepository
 from models.clip import Clip, ClipStatus
 
-DEFAULT_MIN_SCORE = 0.7
+DEFAULT_MIN_SCORE = 0.8
 DEFAULT_HIGH_SCORE_LIMIT = 10
 
 

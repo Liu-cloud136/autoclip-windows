@@ -155,24 +155,47 @@ const HomePage: React.FC = () => {
   }
 
   const handleRetryProject = async (projectId: string) => {
-    try {
-      const project = projects.find(p => p.id === projectId)
-      if (!project) {
-        message.error('项目不存在')
-        return
-      }
-      
-      if (project.status === 'pending') {
+    const project = projects.find(p => p.id === projectId)
+    if (!project) {
+      message.error('项目不存在')
+      return
+    }
+    
+    if (project.status === 'pending') {
+      try {
         await projectApi.startProcessing(projectId)
-      } else {
-        await projectApi.retryProcessing(projectId)
+        message.success('已开始处理项目')
+        
+        setTimeout(async () => {
+          try {
+            await refreshNow()
+          } catch (refreshError) {
+            console.error('Failed to refresh after starting processing:', refreshError)
+          }
+        }, 1000)
+      } catch (error: unknown) {
+        const errorMessage = (error as { userMessage?: string })?.userMessage || '启动处理失败'
+        message.error(errorMessage)
+        console.error('Start processing error:', error)
       }
-      message.success('已开始重试处理项目')
-      
-      await loadProjects()
-    } catch (error) {
-      message.error('重试失败，请稍后再试')
-      console.error('Retry project error:', error)
+    } else {
+      try {
+        const result = await projectApi.retryProcessing(projectId)
+        const cleanedFiles = (result as { cleaned_files?: number })?.cleaned_files || 0
+        message.success(`已重新提交任务${cleanedFiles > 0 ? `，已清理 ${cleanedFiles} 个中间文件` : ''}`)
+        
+        setTimeout(async () => {
+          try {
+            await refreshNow()
+          } catch (refreshError) {
+            console.error('Failed to refresh after retry:', refreshError)
+          }
+        }, 1000)
+      } catch (error: unknown) {
+        const errorMessage = (error as { userMessage?: string })?.userMessage || '重试失败，请稍后再试'
+        message.error(errorMessage)
+        console.error('Retry project error:', error)
+      }
     }
   }
 

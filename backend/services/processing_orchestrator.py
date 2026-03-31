@@ -73,6 +73,8 @@ try:
     from pipeline.step1_outline import run_step1_outline
     from pipeline.step2_timeline import run_step2_timeline
     from pipeline.step3_scoring import run_step3_scoring
+    from pipeline.step3_scoring_only import run_step3_scoring_only
+    from pipeline.step4_recommendation import run_step4_recommendation
     from pipeline.step4_title import run_step4_title
     from pipeline.step5_video import run_step5_video
     PIPELINE_MODULES_AVAILABLE = True
@@ -114,8 +116,10 @@ class ProcessingOrchestrator:
             ProcessingStep.STEP1_OUTLINE: run_step1_outline,
             ProcessingStep.STEP2_TIMELINE: run_step2_timeline,
             ProcessingStep.STEP3_SCORING: run_step3_scoring,
-            ProcessingStep.STEP4_TITLE: run_step4_title,
-            ProcessingStep.STEP5_CLUSTERING: run_step5_video,
+            ProcessingStep.STEP3_SCORING_ONLY: run_step3_scoring_only,
+            ProcessingStep.STEP4_RECOMMENDATION: run_step4_recommendation,
+            ProcessingStep.STEP5_TITLE: run_step4_title,
+            ProcessingStep.STEP6_CLUSTERING: run_step5_video,
         }
 
         # 步骤适配器映射
@@ -123,8 +127,10 @@ class ProcessingOrchestrator:
             ProcessingStep.STEP1_OUTLINE: self._adapt_step1_outline,
             ProcessingStep.STEP2_TIMELINE: self._adapt_step2_timeline,
             ProcessingStep.STEP3_SCORING: self._adapt_step3_scoring,
-            ProcessingStep.STEP4_TITLE: self._adapt_step4_title,
-            ProcessingStep.STEP5_CLUSTERING: self._adapt_step5_clustering
+            ProcessingStep.STEP3_SCORING_ONLY: self._adapt_step3_scoring_only,
+            ProcessingStep.STEP4_RECOMMENDATION: self._adapt_step4_recommendation,
+            ProcessingStep.STEP5_TITLE: self._adapt_step4_title,
+            ProcessingStep.STEP6_CLUSTERING: self._adapt_step6_clustering
         }
         
         # 步骤状态管理
@@ -193,8 +199,8 @@ class ProcessingOrchestrator:
                 # 其他步骤使用前一步的输出
                 adapted_params = step_adapter()
 
-            # 为Step5添加进度回调
-            if step == ProcessingStep.STEP5_CLUSTERING:
+            # 为Step6添加进度回调
+            if step == ProcessingStep.STEP6_CLUSTERING:
                 # 创建进度回调函数
                 def video_progress_callback(progress: float):
                     # 计算步骤的进度范围（50-100%）
@@ -272,9 +278,10 @@ class ProcessingOrchestrator:
             steps_to_execute = [
                 ProcessingStep.STEP1_OUTLINE,
                 ProcessingStep.STEP2_TIMELINE,
-                ProcessingStep.STEP3_SCORING,
-                ProcessingStep.STEP4_TITLE,
-                ProcessingStep.STEP5_CLUSTERING
+                ProcessingStep.STEP3_SCORING_ONLY,
+                ProcessingStep.STEP4_RECOMMENDATION,
+                ProcessingStep.STEP5_TITLE,
+                ProcessingStep.STEP6_CLUSTERING
             ]
             logger.info(f"开始执行项目 {self.project_id} 的完整流水线")
         else:
@@ -399,8 +406,9 @@ class ProcessingOrchestrator:
                 1: "大纲提取",
                 2: "时间定位", 
                 3: "内容评分",
-                4: "标题生成",
-                5: "视频切割"
+                4: "视频简介生成",
+                5: "标题生成",
+                6: "视频切割"
             }
             step_name = step_name_map.get(current_step, "处理中...")
         
@@ -449,8 +457,8 @@ class ProcessingOrchestrator:
                 # 更新项目状态
                 update_data = {
                     "current_step": current_step,
-                    "total_steps": 5,
-                    "status": "processing" if current_step < 5 else "completed"
+                    "total_steps": 6,
+                    "status": "processing" if current_step < 6 else "completed"
                 }
                 if progress is not None:
                     update_data["progress"] = progress
@@ -483,20 +491,23 @@ class ProcessingOrchestrator:
                     if progress <= 10:
                         current_step = 1
                         step_name = "大纲提取"
-                    elif progress <= 30:
+                    elif progress <= 25:
                         current_step = 2
                         step_name = "时间定位"
-                    elif progress <= 50:
+                    elif progress <= 40:
                         current_step = 3
                         step_name = "内容评分"
-                    elif progress <= 70:
+                    elif progress <= 55:
                         current_step = 4
+                        step_name = "视频简介生成"
+                    elif progress <= 70:
+                        current_step = 5
                         step_name = "标题生成"
                     elif progress <= 95:
-                        current_step = 5
+                        current_step = 6
                         step_name = "视频切割"
                     else:
-                        current_step = 6
+                        current_step = 7
                         step_name = "处理完成"
             else:
                 # 根据步骤编号获取步骤名称
@@ -504,8 +515,9 @@ class ProcessingOrchestrator:
                     1: "大纲提取",
                     2: "时间定位", 
                     3: "内容评分",
-                    4: "标题生成",
-                    5: "视频切割"
+                    4: "视频简介生成",
+                    5: "标题生成",
+                    6: "视频切割"
                 }
                 step_name = step_name_map.get(current_step, "处理中...")
             
@@ -525,7 +537,7 @@ class ProcessingOrchestrator:
                         int(progress or 0),
                         progress_message,
                         current_step,
-                        6,
+                        7,
                         step_name
                     )
                 )
@@ -547,19 +559,23 @@ class ProcessingOrchestrator:
             ProcessingStep.STEP1_OUTLINE: 1,
             ProcessingStep.STEP2_TIMELINE: 2,
             ProcessingStep.STEP3_SCORING: 3,
-            ProcessingStep.STEP4_TITLE: 4,
-            ProcessingStep.STEP5_CLUSTERING: 5
+            ProcessingStep.STEP3_SCORING_ONLY: 3,
+            ProcessingStep.STEP4_RECOMMENDATION: 4,
+            ProcessingStep.STEP5_TITLE: 5,
+            ProcessingStep.STEP6_CLUSTERING: 6
         }
         return step_number_map.get(step, 0)
     
     def _get_step_progress(self, step: ProcessingStep) -> float:
         """获取步骤对应的进度百分比"""
         step_progress_map = {
-            ProcessingStep.STEP1_OUTLINE: 20,
-            ProcessingStep.STEP2_TIMELINE: 40,
-            ProcessingStep.STEP3_SCORING: 60,
-            ProcessingStep.STEP4_TITLE: 80,
-            ProcessingStep.STEP5_CLUSTERING: 95
+            ProcessingStep.STEP1_OUTLINE: 15,
+            ProcessingStep.STEP2_TIMELINE: 30,
+            ProcessingStep.STEP3_SCORING: 45,
+            ProcessingStep.STEP3_SCORING_ONLY: 45,
+            ProcessingStep.STEP4_RECOMMENDATION: 60,
+            ProcessingStep.STEP5_TITLE: 75,
+            ProcessingStep.STEP6_CLUSTERING: 95
         }
         return step_progress_map.get(step, 0)
     
@@ -600,15 +616,19 @@ class ProcessingOrchestrator:
     
     def _validate_step_dependencies(self, steps_to_execute: List[ProcessingStep]):
         """验证步骤依赖关系"""
-        # 定义步骤依赖关系
         step_dependencies = {
             ProcessingStep.STEP2_TIMELINE: [ProcessingStep.STEP1_OUTLINE],
             ProcessingStep.STEP3_SCORING: [ProcessingStep.STEP2_TIMELINE],
-            ProcessingStep.STEP4_TITLE: [ProcessingStep.STEP3_SCORING],
-            ProcessingStep.STEP5_CLUSTERING: [ProcessingStep.STEP4_TITLE]
+            ProcessingStep.STEP3_SCORING_ONLY: [ProcessingStep.STEP2_TIMELINE],
+            ProcessingStep.STEP4_RECOMMENDATION: [ProcessingStep.STEP3_SCORING_ONLY],
+            ProcessingStep.STEP5_TITLE: [ProcessingStep.STEP3_SCORING_ONLY],
+            ProcessingStep.STEP6_CLUSTERING: [ProcessingStep.STEP5_TITLE]
         }
         
-        # 只检查第一个步骤的依赖，因为其他步骤会在执行过程中逐步检查
+        optional_steps = {
+            ProcessingStep.STEP4_RECOMMENDATION: ProcessingStep.STEP5_TITLE
+        }
+        
         if steps_to_execute:
             first_step = steps_to_execute[0]
             if first_step in step_dependencies:
@@ -616,9 +636,14 @@ class ProcessingOrchestrator:
                 missing_steps = []
                 
                 for req_step in required_steps:
-                    # 检查依赖步骤是否已经完成（通过检查输出文件）
                     step_output = self.adapter.get_step_output_path(req_step.value)
                     if not step_output.exists():
+                        if req_step in optional_steps:
+                            alt_step = optional_steps[req_step]
+                            alt_output = self.adapter.get_step_output_path(alt_step.value)
+                            if alt_output.exists():
+                                logger.info(f"可选步骤 {req_step.value} 未完成，但替代步骤 {alt_step.value} 已完成，跳过依赖检查")
+                                continue
                         missing_steps.append(req_step)
                 
                 if missing_steps:
@@ -689,9 +714,10 @@ class ProcessingOrchestrator:
         all_steps = [
             ProcessingStep.STEP1_OUTLINE,
             ProcessingStep.STEP2_TIMELINE,
-            ProcessingStep.STEP3_SCORING,
-            ProcessingStep.STEP4_TITLE,
-            ProcessingStep.STEP5_CLUSTERING
+            ProcessingStep.STEP3_SCORING_ONLY,
+            ProcessingStep.STEP4_RECOMMENDATION,
+            ProcessingStep.STEP5_TITLE,
+            ProcessingStep.STEP6_CLUSTERING
         ]
         
         try:
@@ -750,7 +776,20 @@ class ProcessingOrchestrator:
             def get_step_output_path(self, step_name):
                 """获取步骤输出路径"""
                 from pathlib import Path
-                return self.data_dir / "projects" / self.project_id / "metadata" / f"{step_name}.json"
+                step_file_map = {
+                    "step1_outline": ("metadata", "step1_outline.json"),
+                    "step2_timeline": ("metadata", "step2_timeline.json"),
+                    "step3_scoring": ("metadata", "step3_only_high_score_clips.json"),
+                    "step3_scoring_only": ("metadata", "step3_only_high_score_clips.json"),
+                    "step4_recommendation": ("metadata", "step4_with_recommendations.json"),
+                    "step5_title": ("metadata", "step4_titles.json"),
+                    "step6_clustering": ("output", "step5_video_output.json")
+                }
+                if step_name in step_file_map:
+                    dir_name, file_name = step_file_map[step_name]
+                else:
+                    dir_name, file_name = "metadata", f"{step_name}.json"
+                return self.data_dir / "projects" / self.project_id / dir_name / file_name
             
             def cleanup_intermediate_files(self, step_name):
                 """清理中间文件"""
@@ -796,7 +835,7 @@ class ProcessingOrchestrator:
         output_dir = project_dir / "metadata"
 
         return {
-            "input_path": output_dir / "step2_timeline.json",
+            "timeline_path": output_dir / "step2_timeline.json",
             "output_path": output_dir / "step3_scoring.json",
             "metadata_dir": output_dir,
             "enable_checkpoint": True
@@ -809,14 +848,40 @@ class ProcessingOrchestrator:
         output_dir = project_dir / "metadata"
 
         return {
-            "input_path": output_dir / "step3_scoring.json",
+            "input_path": output_dir / "step4_recommendation.json",
             "output_path": output_dir / "step4_title.json",
             "metadata_dir": output_dir,
             "enable_checkpoint": True
         }
 
-    def _adapt_step5_clustering(self):
-        """适配Step5参数（切片生成）"""
+    def _adapt_step3_scoring_only(self):
+        """适配Step3_SCORING_ONLY参数"""
+        from pathlib import Path
+        project_dir = self.adapter.data_dir / "projects" / self.project_id
+        output_dir = project_dir / "metadata"
+
+        return {
+            "timeline_path": output_dir / "step2_timeline.json",
+            "output_path": output_dir / "step3_scoring.json",
+            "metadata_dir": output_dir,
+            "enable_checkpoint": True
+        }
+
+    def _adapt_step4_recommendation(self):
+        """适配Step4_RECOMMENDATION参数"""
+        from pathlib import Path
+        project_dir = self.adapter.data_dir / "projects" / self.project_id
+        output_dir = project_dir / "metadata"
+
+        return {
+            "scored_clips_path": output_dir / "step3_scoring.json",
+            "output_path": output_dir / "step4_recommendation.json",
+            "metadata_dir": output_dir,
+            "enable_checkpoint": True
+        }
+
+    def _adapt_step6_clustering(self):
+        """适配Step6参数（切片生成）"""
         from pathlib import Path
         from core.config import get_video_config
         from models.project import Project
@@ -846,8 +911,8 @@ class ProcessingOrchestrator:
         video_config = get_video_config()
 
         params = {
-            "input_path": output_dir / "step4_title.json",
-            "output_path": output_dir / "step5_video_output.json",
+            "input_path": output_dir / "step5_title.json",
+            "output_path": output_dir / "step6_video_output.json",
             "input_video": video_path,  # 必须提供
             "clips_dir": str(clips_dir),
             "metadata_dir": str(output_dir),

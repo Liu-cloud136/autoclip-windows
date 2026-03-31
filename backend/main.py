@@ -30,10 +30,7 @@ if log_dir and not os.path.exists(log_dir):
 # 使用统一的日志配置系统
 from core.logging_config import configure_logging, get_logger
 
-# 清空日志文件（如果需要）
-if os.path.exists(log_file):
-    os.remove(log_file)
-    print(f"已清空日志文件: {log_file}")
+
 
 # 配置结构化日志 - 同时输出到控制台和文件
 configure_logging(

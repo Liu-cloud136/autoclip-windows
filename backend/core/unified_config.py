@@ -58,6 +58,7 @@ def get_default_prompt_files() -> Dict[str, str]:
         "timeline": str(config.paths.prompt_dir / "时间点.txt"),
         "recommendation": str(config.paths.prompt_dir / "推荐理由.txt"),
         "clip_selection": str(config.paths.prompt_dir / "推荐理由.txt"),
+        "scoring": str(config.paths.prompt_dir / "评分.txt"),
         "title": str(config.paths.prompt_dir / "标题生成.txt"),
         "collection_title": str(config.paths.prompt_dir / "标题生成.txt"),
         "clip_title": str(config.paths.prompt_dir / "标题生成.txt")

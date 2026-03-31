@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { 
   Card, Form, Input, Button, Space, Select, Switch, Slider, 
   Typography, Row, Col, Alert, message, Divider, Popconfirm, 
-  Tooltip, Collapse, Modal
+  Tooltip, Collapse, Modal, Tag
 } from 'antd'
 import {
   SaveOutlined,
@@ -11,7 +11,9 @@ import {
   EyeOutlined,
   EyeInvisibleOutlined,
   DeleteOutlined,
-  CopyOutlined
+  CopyOutlined,
+  ThunderboltOutlined,
+  ClockCircleOutlined
 } from '@ant-design/icons'
 import { stepConfigApi, StepConfig, StepConfigUpdateRequest } from '../services/stepConfigApi'
 import { settingsApi } from '../services/api'
@@ -58,6 +60,15 @@ const StepConfigCard: React.FC<StepConfigCardProps> = ({
   const [defaultPrompt, setDefaultPrompt] = useState<string>('')
   const [showPromptModal, setShowPromptModal] = useState(false)
   const [customParamsText, setCustomParamsText] = useState<string>('')
+  const [testingResponseTime, setTestingResponseTime] = useState(false)
+  const [responseTimeResult, setResponseTimeResult] = useState<{
+    success: boolean
+    response_time: number | null
+    model?: string
+    provider?: string
+    reply?: string
+    error?: string
+  } | null>(null)
 
   // 初始化表单
   useEffect(() => {
@@ -165,10 +176,10 @@ const StepConfigCard: React.FC<StepConfigCardProps> = ({
         form.setFieldsValue({ provider: providerId })
         
         // 更新模型列表
-        if (result.models && result.models.length > 0) {
-          setModels(result.models)
+        if (result.data && result.data.models && result.data.models.length > 0) {
+          setModels(result.data.models)
           // 设置第一个模型为默认模型
-          form.setFieldsValue({ model: result.models[0].id })
+          form.setFieldsValue({ model: result.data.models[0].id })
         } else {
           // 如果没有获取到模型列表，尝试刷新获取
           try {
@@ -190,7 +201,7 @@ const StepConfigCard: React.FC<StepConfigCardProps> = ({
         // 触发表单提交以保存配置
         form.submit()
       } else {
-        message.error(result.error || '保存自定义提供商配置失败')
+        message.error(result.data?.error || '保存自定义提供商配置失败')
       }
     } catch (error: any) {
       console.error('保存自定义提供商配置失败:', error)
@@ -223,7 +234,7 @@ const StepConfigCard: React.FC<StepConfigCardProps> = ({
       max_tokens: values.max_tokens,
       timeout: values.timeout,
       custom_prompt: values.custom_prompt?.trim() || null,
-      custom_params: Object.keys(customParams).length > 0 ? custom_params : undefined
+      custom_params: Object.keys(customParams).length > 0 ? customParams : undefined
     }
     
     onConfigChange(stepType, updateData)
@@ -245,6 +256,32 @@ const StepConfigCard: React.FC<StepConfigCardProps> = ({
     const configStr = JSON.stringify(config, null, 2)
     navigator.clipboard.writeText(configStr)
     message.success('配置已复制到剪贴板')
+  }
+
+  // 测试模型响应时间
+  const handleTestResponseTime = async () => {
+    setTestingResponseTime(true)
+    setResponseTimeResult(null)
+    try {
+      const result = await stepConfigApi.testResponseTime(stepType)
+      setResponseTimeResult(result)
+      if (result.success) {
+        message.success(`响应时间: ${result.response_time}ms`)
+      } else {
+        message.error(result.error || '测试失败')
+      }
+    } catch (error: any) {
+      console.error('测试响应时间失败:', error)
+      const errorMsg = error?.response?.data?.detail || error?.message || '测试响应时间失败'
+      message.error(errorMsg)
+      setResponseTimeResult({
+        success: false,
+        response_time: null,
+        error: errorMsg
+      })
+    } finally {
+      setTestingResponseTime(false)
+    }
   }
 
   return (
@@ -558,6 +595,13 @@ const StepConfigCard: React.FC<StepConfigCardProps> = ({
                   保存配置
                 </Button>
                 <Button
+                  icon={<ThunderboltOutlined />}
+                  onClick={handleTestResponseTime}
+                  loading={testingResponseTime}
+                >
+                  检测响应时间
+                </Button>
+                <Button
                   type="link"
                   onClick={() => setShowAdvanced(!showAdvanced)}
                 >
@@ -565,6 +609,30 @@ const StepConfigCard: React.FC<StepConfigCardProps> = ({
                 </Button>
               </Space>
             </Form.Item>
+
+            {responseTimeResult && (
+              <Alert
+                message={responseTimeResult.success ? '模型响应测试成功' : '模型响应测试失败'}
+                description={
+                  responseTimeResult.success ? (
+                    <div>
+                      <p><ClockCircleOutlined /> 响应时间: <Tag color="green">{responseTimeResult.response_time} ms</Tag></p>
+                      <p>模型: {responseTimeResult.model}</p>
+                      {responseTimeResult.reply && <p>回复: {responseTimeResult.reply}</p>}
+                    </div>
+                  ) : (
+                    <div>
+                      <p>错误: {responseTimeResult.error}</p>
+                    </div>
+                  )
+                }
+                type={responseTimeResult.success ? 'success' : 'error'}
+                showIcon
+                closable
+                onClose={() => setResponseTimeResult(null)}
+                style={{ marginBottom: 16 }}
+              />
+            )}
 
             {showAdvanced && (
               <div style={{ marginTop: 16 }}>

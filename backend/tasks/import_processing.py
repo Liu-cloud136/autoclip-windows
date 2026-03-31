@@ -39,11 +39,9 @@ def process_import_task(self, project_id: str, video_path: str, srt_file_path: O
     try:
         logger.info(f"开始处理导入任务: {project_id}")
 
-        # 获取数据库会话
         db = SessionLocal()
         project_service = ProjectService(db)
 
-        # 首先检查项目是否存在（只查询一次）
         project = project_service.get(project_id)
         if not project:
             logger.warning(f"项目 {project_id} 不存在，跳过导入任务")
@@ -53,7 +51,22 @@ def process_import_task(self, project_id: str, video_path: str, srt_file_path: O
                 'message': '项目不存在，跳过导入任务'
             }
 
-        # 检查项目是否已被删除
+        if project.status.value == "completed":
+            logger.info(f"项目 {project_id} 已完成，跳过导入任务")
+            return {
+                'status': 'skipped',
+                'project_id': project_id,
+                'message': '项目已完成，跳过导入任务'
+            }
+
+        if project.status.value == "processing":
+            logger.info(f"项目 {project_id} 正在处理中，跳过导入任务")
+            return {
+                'status': 'skipped',
+                'project_id': project_id,
+                'message': '项目正在处理中，跳过导入任务'
+            }
+
         if project.status.value == "failed" and not project.video_path:
             logger.warning(f"项目 {project_id} 可能已被删除，跳过导入任务")
             return {
@@ -62,7 +75,6 @@ def process_import_task(self, project_id: str, video_path: str, srt_file_path: O
                 'message': '项目可能已被删除，跳过导入任务'
             }
 
-        # 更新任务进度
         self.update_state(state='PROGRESS', meta={'progress': 10, 'message': '开始处理...'})
 
         # 1. 根据配置决定是否立即生成缩略图
@@ -109,10 +121,28 @@ def process_import_task(self, project_id: str, video_path: str, srt_file_path: O
 
         # 4. 启动处理流程
         try:
+            project = project_service.get(project_id)
+            if not project:
+                logger.warning(f"项目 {project_id} 不存在，跳过启动处理流程")
+                return {
+                    'status': 'skipped',
+                    'project_id': project_id,
+                    'message': '项目不存在，跳过启动处理流程'
+                }
+            
+            if project.status.value == "completed":
+                logger.info(f"项目 {project_id} 已完成，跳过启动处理流程")
+                return {
+                    'status': 'completed',
+                    'project_id': project_id,
+                    'message': '项目已完成，跳过启动处理流程'
+                }
+
             task_result = submit_video_pipeline_task(
                 project_id=project_id,
                 input_video_path=video_path,
-                input_srt_path=srt_path or ""
+                input_srt_path=srt_path or "",
+                skip_status_check=True
             )
 
             if task_result['success']:

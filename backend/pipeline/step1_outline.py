@@ -57,6 +57,9 @@ class OutlineExtractor:
         # 创建用于存放中间SRT块的目录
         self.srt_chunks_dir = self.metadata_dir / "step1_srt_chunks"
         self.srt_chunks_dir.mkdir(parents=True, exist_ok=True)
+        # 创建用于存放LLM原始输出的目录
+        self.llm_raw_output_dir = self.metadata_dir / "step1_llm_raw_output"
+        self.llm_raw_output_dir.mkdir(parents=True, exist_ok=True)
 
     async def extract_outline(self, srt_path: Path) -> List[Dict]:
         """
@@ -136,6 +139,10 @@ class OutlineExtractor:
                 )
 
                 if response:
+                    # 保存原始响应
+                    raw_output_file = self.llm_raw_output_dir / f"chunk_{i}_raw_output.txt"
+                    with open(raw_output_file, 'w', encoding='utf-8') as f:
+                        f.write(response)
                     # 解析响应并附加块索引
                     parsed_outlines = self._parse_outline_response(response, i)
                     all_outlines.extend(parsed_outlines)

@@ -91,7 +91,7 @@ class LLMManager:
             "gemini_api_key": "",
             "siliconflow_api_key": "",
             "chunk_size": 5000,
-            "min_score_threshold": 70,  # 100分制
+            "min_score_threshold": 80,  # 100分制
         }
 
         # 从环境变量加载 API 密钥

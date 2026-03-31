@@ -246,7 +246,7 @@ const StepConfigPage: React.FC = () => {
               type="card"
               size="large"
               items={stepTypes
-                .filter(stepType => stepType.value !== 'step5_clustering')
+                .filter(stepType => stepType.value !== 'step6_clustering')
                 .map(stepType => {
                 const config = stepConfigs[stepType.value]
                 if (!config) return null

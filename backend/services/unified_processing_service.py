@@ -183,8 +183,10 @@ class UnifiedProcessingService:
                 ProcessingStep.STEP1_OUTLINE: ProgressStage.SUBTITLE,
                 ProcessingStep.STEP2_TIMELINE: ProgressStage.ANALYZE,
                 ProcessingStep.STEP3_SCORING: ProgressStage.ANALYZE,
-                ProcessingStep.STEP4_TITLE: ProgressStage.HIGHLIGHT,
-                ProcessingStep.STEP5_CLUSTERING: ProgressStage.EXPORT,
+                ProcessingStep.STEP3_SCORING_ONLY: ProgressStage.ANALYZE,
+                ProcessingStep.STEP4_RECOMMENDATION: ProgressStage.ANALYZE,
+                ProcessingStep.STEP5_TITLE: ProgressStage.HIGHLIGHT,
+                ProcessingStep.STEP6_CLUSTERING: ProgressStage.EXPORT,
             }
             run_async_in_sync_context(
                 self._progress_service.start_progress(project_id, str(task.id), f"开始执行步骤: {step.value}")
@@ -198,7 +200,7 @@ class UnifiedProcessingService:
         
         context.mark_completed()
         
-        if step == ProcessingStep.STEP5_CLUSTERING:
+        if step == ProcessingStep.STEP6_CLUSTERING:
             self._sync_project_data(project_id)
             if self._progress_service:
                 run_async_in_sync_context(
@@ -356,8 +358,10 @@ class UnifiedProcessingService:
             "step1_outline": ProcessingStep.STEP1_OUTLINE,
             "step2_timeline": ProcessingStep.STEP2_TIMELINE,
             "step3_scoring": ProcessingStep.STEP3_SCORING,
-            "step4_title": ProcessingStep.STEP4_TITLE,
-            "step5_clustering": ProcessingStep.STEP5_CLUSTERING
+            "step3_scoring_only": ProcessingStep.STEP3_SCORING_ONLY,
+            "step4_recommendation": ProcessingStep.STEP4_RECOMMENDATION,
+            "step5_title": ProcessingStep.STEP5_TITLE,
+            "step6_clustering": ProcessingStep.STEP6_CLUSTERING
         }
         
         if start_step not in step_mapping:

@@ -6,10 +6,12 @@
 import logging
 from typing import Dict, Any, Optional
 from core.celery_app import celery_app
+from core.database import SessionLocal
+from models.project import Project, ProjectStatus
 
 logger = logging.getLogger(__name__)
 
-def submit_video_pipeline_task(project_id: str, input_video_path: str, input_srt_path: str) -> Dict[str, Any]:
+def submit_video_pipeline_task(project_id: str, input_video_path: str, input_srt_path: str, skip_status_check: bool = False) -> Dict[str, Any]:
     """
     提交视频流水线任务
     
@@ -17,6 +19,7 @@ def submit_video_pipeline_task(project_id: str, input_video_path: str, input_srt
         project_id: 项目ID
         input_video_path: 输入视频路径
         input_srt_path: 输入SRT路径
+        skip_status_check: 是否跳过状态检查（用于导入流程中已经设置状态的情况）
         
     Returns:
         任务提交结果
@@ -24,7 +27,39 @@ def submit_video_pipeline_task(project_id: str, input_video_path: str, input_srt
     try:
         logger.info(f"提交视频流水线任务: {project_id}")
         
-        # 直接使用celery_app提交任务
+        if not skip_status_check:
+            db = SessionLocal()
+            try:
+                project = db.query(Project).filter(Project.id == project_id).first()
+                
+                if not project:
+                    logger.warning(f"项目 {project_id} 不存在，跳过任务提交")
+                    return {
+                        'success': False,
+                        'error': '项目不存在',
+                        'message': '项目不存在，跳过任务提交'
+                    }
+                
+                if project.status == ProjectStatus.COMPLETED:
+                    logger.info(f"项目 {project_id} 已完成，跳过任务提交")
+                    return {
+                        'success': True,
+                        'task_id': None,
+                        'status': 'already_completed',
+                        'message': '项目已完成，跳过任务提交'
+                    }
+                
+                if project.status == ProjectStatus.PROCESSING:
+                    logger.info(f"项目 {project_id} 正在处理中，跳过重复任务提交")
+                    return {
+                        'success': True,
+                        'task_id': None,
+                        'status': 'already_processing',
+                        'message': '项目正在处理中，跳过重复任务提交'
+                    }
+            finally:
+                db.close()
+        
         logger.info(f"准备提交任务到队列...")
         logger.info(f"任务名称: backend.tasks.processing.process_video_pipeline")
         logger.info(f"任务参数: {[project_id, input_video_path, input_srt_path]}")
@@ -38,11 +73,13 @@ def submit_video_pipeline_task(project_id: str, input_video_path: str, input_srt
             logger.info(f"视频流水线任务已提交: {celery_task.id}")
             logger.info(f"任务状态: {celery_task.state}")
             
-            # 检查任务是否真的提交到队列
-            import redis
-            r = redis.Redis(host='localhost', port=6379, db=0)
-            queue_length = r.llen('processing')
-            logger.info(f"Redis队列长度: {queue_length}")
+            try:
+                import redis
+                r = redis.Redis(host='localhost', port=6379, db=0)
+                queue_length = r.llen('processing')
+                logger.info(f"Redis队列长度: {queue_length}")
+            except Exception as redis_error:
+                logger.debug(f"无法获取Redis队列长度: {redis_error}")
             
         except Exception as e:
             logger.error(f"任务提交过程中出现异常: {e}")

@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     api_max_tokens: int = Field(default=4096, validation_alias=AliasChoices('API_MAX_TOKENS'))
     api_timeout: int = Field(default=30, validation_alias=AliasChoices('API_TIMEOUT'))
     processing_chunk_size: int = Field(default=5000, validation_alias=AliasChoices('PROCESSING_CHUNK_SIZE'))
-    processing_min_score_threshold: float = Field(default=0.7, validation_alias=AliasChoices('PROCESSING_MIN_SCORE_THRESHOLD'))
+    processing_min_score_threshold: float = Field(default=70, validation_alias=AliasChoices('PROCESSING_MIN_SCORE_THRESHOLD'))
     processing_max_clips_per_collection: int = Field(default=5, validation_alias=AliasChoices('PROCESSING_MAX_CLIPS_PER_COLLECTION'))
     processing_max_retries: int = Field(default=3, validation_alias=AliasChoices('PROCESSING_MAX_RETRIES'))
     video_use_stream_copy: bool = Field(default=True, validation_alias=AliasChoices('VIDEO_USE_STREAM_COPY'))

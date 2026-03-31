@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 class ProcessingConfig(BaseModel):
     """处理配置"""
     chunk_size: int = Field(default=5000, gt=0, description="文本分块大小")
-    min_score_threshold: float = Field(default=70.0, ge=0.0, le=100.0, description="最小评分阈值（100分制）")
+    min_score_threshold: float = Field(default=80.0, ge=0.0, le=100.0, description="最小评分阈值（100分制）")
     max_retries: int = Field(default=3, gt=0, description="最大重试次数")
     timeout_seconds: int = Field(default=120, gt=0, description="处理超时时间（秒）")
     

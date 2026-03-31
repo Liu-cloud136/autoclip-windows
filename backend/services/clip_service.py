@@ -17,7 +17,7 @@ from services.cache_service import get_cache_service
 DEFAULT_CACHE_TTL = 3600
 DEFAULT_PAGE_SKIP = 0
 DEFAULT_PAGE_LIMIT = 100
-MIN_SCORE_THRESHOLD = 0.7
+MIN_SCORE_THRESHOLD = 0.8
 
 
 class ClipService(BaseService[Clip, ClipCreate, ClipUpdate, ClipResponse]):

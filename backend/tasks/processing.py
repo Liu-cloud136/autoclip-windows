@@ -102,11 +102,48 @@ def process_video_pipeline(self, project_id: str, input_video_path: str, input_s
     logger.info(f"开始处理视频流水线: {project_id}, 任务ID: {task_id}")
     
     try:
-        # 创建数据库会话
         db = SessionLocal()
         
         try:
-            # 创建任务记录
+            project = db.query(Project).filter(Project.id == project_id).first()
+            
+            if not project:
+                logger.warning(f"项目 {project_id} 不存在，跳过处理")
+                return {
+                    "success": True,
+                    "project_id": project_id,
+                    "task_id": task_id,
+                    "message": "项目不存在，跳过处理",
+                    "status": "skipped"
+                }
+            
+            if project.status == ProjectStatus.COMPLETED:
+                logger.info(f"项目 {project_id} 已完成，跳过重复处理")
+                return {
+                    "success": True,
+                    "project_id": project_id,
+                    "task_id": task_id,
+                    "message": "项目已完成，跳过重复处理",
+                    "status": "already_completed"
+                }
+            
+            if project.status == ProjectStatus.PROCESSING:
+                existing_task = db.query(Task).filter(
+                    Task.project_id == project_id,
+                    Task.status == TaskStatus.RUNNING,
+                    Task.id != task_id
+                ).first()
+                
+                if existing_task:
+                    logger.warning(f"项目 {project_id} 已有其他任务在处理中 (任务ID: {existing_task.id})，跳过重复处理")
+                    return {
+                        "success": True,
+                        "project_id": project_id,
+                        "task_id": task_id,
+                        "message": "项目已有其他任务在处理中，跳过重复处理",
+                        "status": "already_processing"
+                    }
+            
             task = Task(
                 name=f"视频处理流水线",
                 description=f"处理项目 {project_id} 的完整视频流水线",
@@ -120,12 +157,9 @@ def process_video_pipeline(self, project_id: str, input_video_path: str, input_s
             )
             db.add(task)
             
-            # 更新项目状态为处理中
-            project = db.query(Project).filter(Project.id == project_id).first()
-            if project:
-                project.status = ProjectStatus.PROCESSING
-                project.updated_at = datetime.utcnow()
-                logger.info(f"项目状态已更新为处理中: {project_id}")
+            project.status = ProjectStatus.PROCESSING
+            project.updated_at = datetime.utcnow()
+            logger.info(f"项目状态已更新为处理中: {project_id}")
             
             db.commit()
             
@@ -236,6 +270,156 @@ def process_video_pipeline(self, project_id: str, input_video_path: str, input_s
             logger.error(f"更新任务状态失败: {str(db_error)}")
         
         # 发送错误通知
+        run_async_notification(
+            notification_service.send_processing_error(project_id, task_id, error_msg)
+        )
+        
+        raise
+
+@celery_app.task(bind=True, name='backend.tasks.processing.process_from_step',
+                max_retries=2, default_retry_delay=30, time_limit=3600, soft_time_limit=3300)
+def process_from_step(self, project_id: str, start_step: str, srt_path: Optional[str] = None) -> Dict[str, Any]:
+    """
+    从指定步骤开始处理视频流水线
+    
+    Args:
+        project_id: 项目ID
+        start_step: 起始步骤 (step1_outline, step2_timeline, etc.)
+        srt_path: SRT文件路径（仅从step1开始时需要）
+        
+    Returns:
+        处理结果
+    """
+    task_id = self.request.id
+    logger.info(f"开始从步骤 {start_step} 处理项目: {project_id}, 任务ID: {task_id}")
+    
+    try:
+        db = SessionLocal()
+        
+        try:
+            project = db.query(Project).filter(Project.id == project_id).first()
+            
+            if not project:
+                logger.warning(f"项目 {project_id} 不存在，跳过处理")
+                return {
+                    "success": False,
+                    "project_id": project_id,
+                    "task_id": task_id,
+                    "message": "项目不存在",
+                    "status": "error"
+                }
+            
+            task = Task(
+                name=f"从 {start_step} 开始处理",
+                description=f"从步骤 {start_step} 开始处理项目 {project_id}",
+                task_type=TaskType.VIDEO_PROCESSING,
+                project_id=project_id,
+                celery_task_id=task_id,
+                status=TaskStatus.RUNNING,
+                progress=0,
+                current_step=start_step,
+                total_steps=6
+            )
+            db.add(task)
+            
+            project.status = ProjectStatus.PROCESSING
+            project.updated_at = datetime.utcnow()
+            db.commit()
+            
+            from services.config_manager import ProcessingStep
+            step_mapping = {
+                "step1_outline": ProcessingStep.STEP1_OUTLINE,
+                "step2_timeline": ProcessingStep.STEP2_TIMELINE,
+                "step3_scoring": ProcessingStep.STEP3_SCORING_ONLY,
+                "step4_recommendation": ProcessingStep.STEP4_RECOMMENDATION,
+                "step5_title": ProcessingStep.STEP5_TITLE,
+                "step6_clustering": ProcessingStep.STEP6_CLUSTERING
+            }
+            
+            processing_step = step_mapping.get(start_step)
+            if not processing_step:
+                raise ValueError(f"无效的步骤: {start_step}")
+            
+            from services.processing_orchestrator import ProcessingOrchestrator
+            orchestrator = ProcessingOrchestrator(project_id, str(task.id), db)
+            
+            all_steps = [
+                ProcessingStep.STEP1_OUTLINE,
+                ProcessingStep.STEP2_TIMELINE,
+                ProcessingStep.STEP3_SCORING_ONLY,
+                ProcessingStep.STEP4_RECOMMENDATION,
+                ProcessingStep.STEP5_TITLE,
+                ProcessingStep.STEP6_CLUSTERING
+            ]
+            
+            start_index = all_steps.index(processing_step)
+            steps_to_execute = all_steps[start_index:]
+            
+            logger.info(f"将执行步骤: {[s.value for s in steps_to_execute]}")
+            
+            if processing_step == ProcessingStep.STEP1_OUTLINE:
+                if not srt_path:
+                    from core.path_utils import get_project_raw_directory
+                    raw_dir = get_project_raw_directory(project_id)
+                    srt_path = str(raw_dir / "input.srt")
+                
+                if not Path(srt_path).exists():
+                    raise ValueError(f"SRT文件不存在: {srt_path}")
+                
+                result = orchestrator.execute_pipeline(Path(srt_path), steps_to_execute)
+            else:
+                result = orchestrator.execute_pipeline(Path("dummy.srt"), steps_to_execute)
+            
+            task.status = TaskStatus.COMPLETED
+            task.progress = 100
+            task.current_step = "处理完成"
+            task.result_data = result
+            
+            project.status = ProjectStatus.COMPLETED
+            project.completed_at = datetime.utcnow()
+            project.updated_at = datetime.utcnow()
+            db.commit()
+            
+            run_async_notification(
+                notification_service.send_processing_complete(project_id, task_id, result)
+            )
+            
+            logger.info(f"从步骤 {start_step} 处理完成: {project_id}")
+            return {
+                "success": True,
+                "project_id": project_id,
+                "task_id": task_id,
+                "start_step": start_step,
+                "result": result,
+                "message": f"从步骤 {start_step} 处理完成"
+            }
+            
+        finally:
+            db.close()
+            
+    except Exception as e:
+        error_msg = f"从步骤 {start_step} 处理失败: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        
+        try:
+            db = SessionLocal()
+            try:
+                task = db.query(Task).filter(Task.celery_task_id == task_id).first()
+                if task:
+                    task.status = TaskStatus.FAILED
+                    task.error_message = error_msg
+                    db.commit()
+                
+                project = db.query(Project).filter(Project.id == project_id).first()
+                if project:
+                    project.status = ProjectStatus.FAILED
+                    project.updated_at = datetime.utcnow()
+                    db.commit()
+            finally:
+                db.close()
+        except Exception as db_error:
+            logger.error(f"更新数据库失败: {db_error}")
+        
         run_async_notification(
             notification_service.send_processing_error(project_id, task_id, error_msg)
         )
