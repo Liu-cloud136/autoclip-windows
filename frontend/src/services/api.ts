@@ -513,3 +513,177 @@ export const taskApi = {
 }
 
 export default api
+
+export interface DanmakuFileInfo {
+  id: string
+  file_name: string
+  file_path: string
+  file_size: number
+  source_type: string
+  status: string
+  danmaku_count: number
+  video_duration: number
+  project_id: string | null
+  analysis_metadata: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+export interface DanmakuHeatPoint {
+  start_time: number
+  end_time: number
+  center_time: number
+  danmaku_count: number
+  density: number
+  heat_score: number
+  keywords: string[]
+  sentiment_score: number
+}
+
+export interface DanmakuScoreBreakdown {
+  heat_score: number
+  keyword_score: number
+  sentiment_score: number
+  special_score: number
+  total_danmaku_score: number
+  heat_contribution: number
+  keyword_contribution: number
+  sentiment_contribution: number
+  special_contribution: number
+}
+
+export interface DanmakuScoreResult {
+  success: boolean
+  danmaku_file_id: string
+  time_range: {
+    start_time: number
+    end_time: number
+    duration: number
+  }
+  scores: DanmakuScoreBreakdown
+}
+
+export const danmakuApi = {
+  uploadDanmakuFile: async (
+    file: File,
+    projectId?: string,
+    sourceType: string = 'bilibili'
+  ): Promise<{
+    success: boolean
+    danmaku_file_id: string
+    file_name: string
+    danmaku_count: number
+    status: string
+    message: string
+  }> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (projectId) {
+      formData.append('project_id', projectId)
+    }
+    formData.append('source_type', sourceType)
+
+    const result = await api.post('danmaku/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    })
+    return result
+  },
+
+  getDanmakuFileInfo: async (danmakuFileId: string): Promise<DanmakuFileInfo> => {
+    const result = await api.get(`danmaku/${danmakuFileId}`)
+    return result
+  },
+
+  parseDanmakuFile: async (danmakuFileId: string): Promise<{
+    success: boolean
+    danmaku_file_id: string
+    danmaku_count: number
+    status: string
+    message: string
+  }> => {
+    const result = await api.post(`danmaku/parse/${danmakuFileId}`)
+    return result
+  },
+
+  analyzeDanmakuFile: async (
+    danmakuFileId: string,
+    windowSeconds: number = 10,
+    slideSeconds: number = 5
+  ): Promise<{
+    success: boolean
+    danmaku_file_id: string
+    status: string
+    message: string
+    summary: {
+      total_danmaku: number
+      heat_points_count: number
+      top_keywords: Array<{ word: string; count: number }>
+      sentiment: { positive: number; negative: number; neutral: number }
+      special_danmaku_count: number
+    }
+  }> => {
+    const result = await api.post(`danmaku/analyze/${danmakuFileId}`, null, {
+      params: {
+        window_seconds: windowSeconds,
+        slide_seconds: slideSeconds,
+      },
+    })
+    return result
+  },
+
+  getHeatPoints: async (
+    danmakuFileId: string,
+    limit: number = 20,
+    minScore: number = 0
+  ): Promise<{
+    danmaku_file_id: string
+    heat_points: DanmakuHeatPoint[]
+  }> => {
+    const result = await api.get(`danmaku/${danmakuFileId}/heat-points`, {
+      params: {
+        limit,
+        min_score: minScore,
+      },
+    })
+    return result
+  },
+
+  getScoreForTimeRange: async (
+    danmakuFileId: string,
+    startTime: number,
+    endTime: number
+  ): Promise<DanmakuScoreResult> => {
+    const result = await api.post(`danmaku/score-time-range/${danmakuFileId}`, null, {
+      params: {
+        start_time: startTime,
+        end_time: endTime,
+      },
+    })
+    return result
+  },
+
+  getProjectDanmakuFiles: async (projectId: string): Promise<{
+    project_id: string
+    danmaku_files: Array<{
+      id: string
+      file_name: string
+      status: string
+      danmaku_count: number
+      created_at: string
+    }>
+  }> => {
+    const result = await api.get(`danmaku/project/${projectId}`)
+    return result
+  },
+
+  deleteDanmakuFile: async (danmakuFileId: string): Promise<{
+    success: boolean
+    danmaku_file_id: string
+    message: string
+  }> => {
+    const result = await api.delete(`danmaku/${danmakuFileId}`)
+    return result
+  },
+}
