@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
 # 导入各个API模块
-from . import projects, clips, settings, health, files, processing, progress, simple_progress, tasks, websocket, ai_stream, clip_thumbnails, step_config, test_progress, prompt
+from . import projects, clips, settings, health, files, processing, progress, simple_progress, tasks, websocket, ai_stream, clip_thumbnails, step_config, test_progress, prompt, danmaku
 
 # 创建主路由器
 router = APIRouter()
@@ -23,3 +23,4 @@ router.include_router(websocket.router, tags=["websocket"])
 router.include_router(ai_stream.router, prefix="/ai_stream", tags=["ai_stream"])
 router.include_router(test_progress.router, tags=["test"])
 router.include_router(prompt.router, prefix="/prompt", tags=["prompt"])
+router.include_router(danmaku.router, tags=["danmaku"])
