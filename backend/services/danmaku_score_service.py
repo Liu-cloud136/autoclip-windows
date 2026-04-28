@@ -4,12 +4,14 @@
 """
 
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from pathlib import Path
 from dataclasses import dataclass, asdict
 
 from utils.danmaku_analyzer import DanmakuAnalyzer, load_analysis_result, DanmakuAnalysisResult
-from models.danmaku import DanmakuFile, DanmakuFileStatus
+
+if TYPE_CHECKING:
+    from models.danmaku import DanmakuFile, DanmakuFileStatus
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +214,7 @@ def load_danmaku_analysis_from_file(analysis_file_path: str) -> Optional[Danmaku
         return None
 
 
-def get_danmaku_analysis_from_db(danmaku_file: DanmakuFile) -> Optional[DanmakuAnalysisResult]:
+def get_danmaku_analysis_from_db(danmaku_file: 'DanmakuFile') -> Optional[DanmakuAnalysisResult]:
     """
     从数据库记录获取弹幕分析结果
     
@@ -222,6 +224,8 @@ def get_danmaku_analysis_from_db(danmaku_file: DanmakuFile) -> Optional[DanmakuA
     Returns:
         DanmakuAnalysisResult 或 None
     """
+    from models.danmaku import DanmakuFileStatus
+    
     if not danmaku_file:
         return None
     

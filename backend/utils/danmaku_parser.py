@@ -265,7 +265,7 @@ class DanmakuParser:
         if not isinstance(item, dict):
             return None
         
-        content = item.get('content', item.get('text', item.get('msg', ''))
+        content = item.get('content', item.get('text', item.get('msg', '')))
         if not content:
             return None
         
