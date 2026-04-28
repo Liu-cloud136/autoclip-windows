@@ -6,6 +6,7 @@ from .base import Base, TimestampMixin
 from .project import Project
 from .clip import Clip
 from .task import Task, TaskStatus, TaskType
+from .danmaku import DanmakuFile, DanmakuSourceType, DanmakuFileStatus
 
 __all__ = [
     "Base",
@@ -14,5 +15,8 @@ __all__ = [
     "Clip", 
     "Task",
     "TaskStatus",
-    "TaskType"
+    "TaskType",
+    "DanmakuFile",
+    "DanmakuSourceType",
+    "DanmakuFileStatus"
 ]
