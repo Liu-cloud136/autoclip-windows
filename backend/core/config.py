@@ -6,8 +6,42 @@
 import os
 from pathlib import Path
 from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field, AliasChoices
+from pydantic import BaseModel, Field, AliasChoices, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _detect_project_root() -> Path:
+    """自动检测项目根目录"""
+    current_path = Path(__file__).parent
+    
+    while current_path.parent != current_path:
+        if (current_path.parent / "frontend").exists() and (current_path.parent / "backend").exists():
+            return current_path.parent
+        current_path = current_path.parent
+    
+    return Path(__file__).parent.parent.parent
+
+
+def _get_default_database_url() -> str:
+    """获取默认的数据库URL（绝对路径）"""
+    project_root = _detect_project_root()
+    db_path = project_root / "data" / "autoclip.db"
+    return f"sqlite:///{db_path}"
+
+
+def _ensure_absolute_database_url(url: str) -> str:
+    """确保数据库URL使用绝对路径"""
+    if url.startswith("sqlite:///"):
+        db_path_str = url[len("sqlite:///"):]
+        db_path = Path(db_path_str)
+        
+        if not db_path.is_absolute():
+            project_root = _detect_project_root()
+            absolute_db_path = project_root / db_path_str
+            return f"sqlite:///{absolute_db_path}"
+    
+    return url
+
 
 class APISettings(BaseModel):
     """API配置"""
@@ -16,9 +50,16 @@ class APISettings(BaseModel):
     max_tokens: int = Field(default=4096, validation_alias=AliasChoices('API_MAX_TOKENS'))
     timeout: int = Field(default=30, validation_alias=AliasChoices('API_TIMEOUT'))
 
+
 class DatabaseSettings(BaseModel):
     """数据库配置"""
-    url: str = Field(default='sqlite:///./data/autoclip.db', validation_alias=AliasChoices('DATABASE_URL'))
+    url: str = Field(default_factory=_get_default_database_url, validation_alias=AliasChoices('DATABASE_URL'))
+    
+    @model_validator(mode='after')
+    def ensure_absolute_path(self) -> 'DatabaseSettings':
+        """确保数据库URL使用绝对路径"""
+        self.url = _ensure_absolute_database_url(self.url)
+        return self
 
 class RedisSettings(BaseModel):
     """Redis配置"""
@@ -51,7 +92,14 @@ class Settings(BaseSettings):
     encryption_key: str = Field(default='', validation_alias=AliasChoices('ENCRYPTION_KEY'))
 
     # 直接定义字段，不使用嵌套的BaseModel
-    database_url: str = Field(default='sqlite:///./data/autoclip.db', validation_alias=AliasChoices('DATABASE_URL'))
+    database_url: str = Field(default_factory=_get_default_database_url, validation_alias=AliasChoices('DATABASE_URL'))
+    
+    @model_validator(mode='after')
+    def ensure_absolute_paths(self) -> 'Settings':
+        """确保所有路径都是绝对路径"""
+        self.database_url = _ensure_absolute_database_url(self.database_url)
+        return self
+
     redis_url: str = Field(default='redis://localhost:6379/0', validation_alias=AliasChoices('REDIS_URL'))
     api_dashscope_api_key: str = Field(default='', validation_alias=AliasChoices('API_DASHSCOPE_API_KEY'))
     api_model_name: str = Field(default='qwen-plus', validation_alias=AliasChoices('API_MODEL_NAME'))
