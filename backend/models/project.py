@@ -173,3 +173,5 @@ class Project(BaseModel):
 # 复合索引：用于高效查询特定状态的项目并按时间排序
 Index('idx_project_status_created', Project.status, Project.completed_at)
 Index('idx_project_type_status', Project.project_type, Project.status)
+Index('idx_project_created_at', Project.created_at)
+Index('idx_project_status', Project.status)
