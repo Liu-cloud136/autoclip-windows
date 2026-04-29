@@ -5,11 +5,27 @@
 """
 
 import os
+from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool, QueuePool
 from typing import Generator
 from models.base import Base
+
+# 确保数据目录存在
+def _ensure_data_directory():
+    """确保数据目录存在"""
+    try:
+        from .path_utils import get_data_directory
+        data_dir = get_data_directory()
+        return data_dir
+    except ImportError:
+        # 如果导入失败，尝试从当前文件路径查找项目根目录
+        current_path = Path(__file__).parent  # backend/core/
+        project_root = current_path.parent.parent  # 项目根目录
+        data_dir = project_root / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        return data_dir
 
 # 数据库配置
 # 优先使用环境变量，否则使用配置函数获取正确的路径
@@ -20,14 +36,24 @@ if not DATABASE_URL:
         from .config import get_database_url
         DATABASE_URL = get_database_url()
     except ImportError:
-        # 如果导入失败，使用默认的相对路径（但会在backend目录下）
-        DATABASE_URL = "sqlite:///./data/autoclip.db"
+        # 如果导入失败，使用绝对路径
+        data_dir = _ensure_data_directory()
+        db_path = data_dir / "autoclip.db"
+        DATABASE_URL = f"sqlite:///{db_path}"
         import warnings
         warnings.warn(
-            "使用默认数据库路径，可能导致数据存储在backend目录下。"
-            "建议检查配置。",
+            f"使用备用数据库路径: {DATABASE_URL}",
             RuntimeWarning
         )
+
+# 在创建引擎之前确保数据库目录存在
+if "sqlite" in DATABASE_URL:
+    # 解析 SQLite 路径并确保目录存在
+    sqlite_prefix = "sqlite:///"
+    if DATABASE_URL.startswith(sqlite_prefix):
+        db_path_str = DATABASE_URL[len(sqlite_prefix):]
+        db_path = Path(db_path_str)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
 
 # 创建数据库引擎
 if "sqlite" in DATABASE_URL:
