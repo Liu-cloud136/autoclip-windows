@@ -65,9 +65,9 @@ class TestProjectModel:
         assert project.status == ProjectStatus.COMPLETED
         assert project.completed_at is not None
         
-        project.status = ProjectStatus.ERROR
+        project.status = ProjectStatus.FAILED
         test_session.commit()
-        assert project.status == ProjectStatus.ERROR
+        assert project.status == ProjectStatus.FAILED
     
     def test_project_with_metadata(self, test_session):
         """测试项目元数据"""
@@ -142,7 +142,7 @@ class TestTaskModel:
             task_type=TaskType.VIDEO_PROCESSING,
             project_id=project.id,
             status=TaskStatus.PENDING,
-            current_step=1,
+            current_step="step_1",
             total_steps=5,
             progress=0.0
         )
@@ -154,7 +154,7 @@ class TestTaskModel:
         assert task.task_type == TaskType.VIDEO_PROCESSING
         assert task.project_id == project.id
         assert task.status == TaskStatus.PENDING
-        assert task.current_step == 1
+        assert task.current_step == "step_1"
         assert task.total_steps == 5
         assert task.progress == 0.0
     
@@ -182,12 +182,12 @@ class TestTaskModel:
         test_session.commit()
         
         task.status = TaskStatus.RUNNING
-        task.current_step = 3
+        task.current_step = "step_3"
         task.progress = 30.0
         test_session.commit()
         
         assert task.status == TaskStatus.RUNNING
-        assert task.current_step == 3
+        assert task.current_step == "step_3"
         assert task.progress == 30.0
     
     def test_task_status_transitions(self, test_session):
@@ -368,17 +368,17 @@ class TestClipModel:
         
         assert clip.status == ClipStatus.PENDING
         
-        clip.status = ClipStatus.GENERATING
+        clip.status = ClipStatus.PROCESSING
         test_session.commit()
-        assert clip.status == ClipStatus.GENERATING
-        
-        clip.status = ClipStatus.GENERATED
-        test_session.commit()
-        assert clip.status == ClipStatus.GENERATED
+        assert clip.status == ClipStatus.PROCESSING
         
         clip.status = ClipStatus.COMPLETED
         test_session.commit()
         assert clip.status == ClipStatus.COMPLETED
+        
+        clip.status = ClipStatus.FAILED
+        test_session.commit()
+        assert clip.status == ClipStatus.FAILED
     
     def test_clip_query_by_project(self, test_session):
         """测试按项目查询剪辑"""
