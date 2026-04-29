@@ -5,6 +5,7 @@
 """
 
 import os
+import logging
 from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
@@ -12,39 +13,77 @@ from sqlalchemy.pool import StaticPool, QueuePool
 from typing import Generator
 from models.base import Base
 
-# 确保数据目录存在
+logger = logging.getLogger(__name__)
+
+def _get_project_root_from_file() -> Path:
+    """从当前文件位置确定项目根目录（最可靠的方式）"""
+    # 当前文件: backend/core/database.py
+    # 向上两级到达项目根目录
+    current_path = Path(__file__).resolve().parent  # backend/core/
+    project_root = current_path.parent.parent  # autoclip-windows/
+    
+    # 验证这确实是项目根目录
+    if (project_root / "frontend").exists() and (project_root / "backend").exists():
+        return project_root
+    
+    # 如果验证失败，使用遍历查找
+    current_path = Path(__file__).resolve().parent
+    while current_path.parent != current_path:
+        if (current_path / "frontend").exists() and (current_path / "backend").exists():
+            return current_path
+        current_path = current_path.parent
+    
+    # 最后的回退
+    return Path(__file__).resolve().parent.parent.parent
+
 def _ensure_data_directory():
     """确保数据目录存在"""
     try:
+        # 优先使用 path_utils.py 中的逻辑
         from .path_utils import get_data_directory
         data_dir = get_data_directory()
         return data_dir
     except ImportError:
-        # 如果导入失败，尝试从当前文件路径查找项目根目录
-        current_path = Path(__file__).parent  # backend/core/
-        project_root = current_path.parent.parent  # 项目根目录
+        # 如果导入失败，使用当前文件路径确定项目根目录
+        project_root = _get_project_root_from_file()
         data_dir = project_root / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
         return data_dir
 
+def _get_absolute_database_url() -> str:
+    """获取绝对路径的数据库URL（最可靠的方式）"""
+    project_root = _get_project_root_from_file()
+    db_path = project_root / "data" / "autoclip.db"
+    return f"sqlite:///{db_path}"
+
+def _ensure_absolute_url(url: str) -> str:
+    """确保数据库URL是绝对路径"""
+    if url.startswith("sqlite:///"):
+        db_path_str = url[len("sqlite:///"):]
+        db_path = Path(db_path_str)
+        
+        if not db_path.is_absolute():
+            # 转换为绝对路径
+            project_root = _get_project_root_from_file()
+            absolute_db_path = project_root / db_path_str
+            new_url = f"sqlite:///{absolute_db_path}"
+            logger.warning(f"将相对路径数据库URL转换为绝对路径: {url} -> {new_url}")
+            return new_url
+    
+    return url
+
 # 数据库配置
-# 优先使用环境变量，否则使用配置函数获取正确的路径
+# 优先使用环境变量，但确保是绝对路径
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-if not DATABASE_URL:
-    try:
-        from .config import get_database_url
-        DATABASE_URL = get_database_url()
-    except ImportError:
-        # 如果导入失败，使用绝对路径
-        data_dir = _ensure_data_directory()
-        db_path = data_dir / "autoclip.db"
-        DATABASE_URL = f"sqlite:///{db_path}"
-        import warnings
-        warnings.warn(
-            f"使用备用数据库路径: {DATABASE_URL}",
-            RuntimeWarning
-        )
+if DATABASE_URL:
+    # 确保环境变量中的URL是绝对路径
+    DATABASE_URL = _ensure_absolute_url(DATABASE_URL)
+else:
+    # 使用最可靠的路径检测方式
+    DATABASE_URL = _get_absolute_database_url()
+
+logger.info(f"数据库URL: {DATABASE_URL}")
 
 # 在创建引擎之前确保数据库目录存在
 if "sqlite" in DATABASE_URL:
