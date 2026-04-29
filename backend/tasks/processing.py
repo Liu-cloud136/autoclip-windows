@@ -84,6 +84,38 @@ def run_async_operation(coro):
         finally:
             loop.close()
 
+def _get_project_with_retry(db, project_id: str, max_retries: int = 5, retry_delay: float = 0.5) -> Optional[Project]:
+    """
+    带重试机制获取项目，处理SQLite多进程并发可见性问题
+    
+    Args:
+        db: 数据库会话
+        project_id: 项目ID
+        max_retries: 最大重试次数
+        retry_delay: 重试间隔（秒）
+        
+    Returns:
+        项目实例，如果不存在则返回None
+    """
+    import time
+    
+    for attempt in range(max_retries):
+        project = db.query(Project).filter(Project.id == project_id).first()
+        
+        if project:
+            if attempt > 0:
+                logger.info(f"项目 {project_id} 在第 {attempt + 1} 次尝试时找到")
+            return project
+        
+        if attempt < max_retries - 1:
+            logger.warning(f"项目 {project_id} 不存在，第 {attempt + 1} 次重试，等待 {retry_delay} 秒...")
+            db.close()
+            time.sleep(retry_delay)
+            db = SessionLocal()
+            retry_delay *= 2  # 指数退避
+    
+    return None
+
 @celery_app.task(bind=True, name='backend.tasks.processing.process_video_pipeline', 
                 max_retries=3, default_retry_delay=60, time_limit=3600, soft_time_limit=3300)
 def process_video_pipeline(self, project_id: str, input_video_path: str, input_srt_path: str) -> Dict[str, Any]:
@@ -105,10 +137,10 @@ def process_video_pipeline(self, project_id: str, input_video_path: str, input_s
         db = SessionLocal()
         
         try:
-            project = db.query(Project).filter(Project.id == project_id).first()
+            project = _get_project_with_retry(db, project_id)
             
             if not project:
-                logger.warning(f"项目 {project_id} 不存在，跳过处理")
+                logger.warning(f"项目 {project_id} 不存在（重试后仍未找到），跳过处理")
                 return {
                     "success": True,
                     "project_id": project_id,
@@ -297,10 +329,10 @@ def process_from_step(self, project_id: str, start_step: str, srt_path: Optional
         db = SessionLocal()
         
         try:
-            project = db.query(Project).filter(Project.id == project_id).first()
+            project = _get_project_with_retry(db, project_id)
             
             if not project:
-                logger.warning(f"项目 {project_id} 不存在，跳过处理")
+                logger.warning(f"项目 {project_id} 不存在（重试后仍未找到），跳过处理")
                 return {
                     "success": False,
                     "project_id": project_id,

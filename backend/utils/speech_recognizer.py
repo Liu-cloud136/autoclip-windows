@@ -2,6 +2,7 @@
 语音识别工具 - 使用 bcut-asr
 """
 import logging
+import sys
 from pathlib import Path
 from typing import Optional
 import os
@@ -16,13 +17,39 @@ load_dotenv(env_path)
 
 logger = logging.getLogger(__name__)
 
+def _add_bcut_asr_to_path():
+    """将本地 bcut-asr 目录添加到 Python 路径"""
+    # 当前文件: backend/utils/speech_recognizer.py
+    # bcut-asr 目录: backend/bcut-asr/
+    # 实际包在: backend/bcut-asr/bcut_asr/
+    bcut_asr_dir = Path(__file__).parent.parent / "bcut-asr"
+    bcut_asr_package_dir = bcut_asr_dir / "bcut_asr"
+    
+    if bcut_asr_dir.exists() and bcut_asr_package_dir.exists():
+        # 添加父目录到 sys.path，这样 Python 可以找到 bcut_asr 包
+        bcut_asr_dir_str = str(bcut_asr_dir)
+        if bcut_asr_dir_str not in sys.path:
+            sys.path.insert(0, bcut_asr_dir_str)
+            logger.info(f"已将本地 bcut-asr 目录添加到 Python 路径: {bcut_asr_dir}")
+        return True
+    return False
+
+# 尝试添加本地 bcut-asr 到路径
+_add_bcut_asr_to_path()
+
+BCUT_ASR_AVAILABLE = False
+BcutASR = None
+ResultStateEnum = None
+
 try:
     from bcut_asr import BcutASR
     from bcut_asr.orm import ResultStateEnum
     BCUT_ASR_AVAILABLE = True
-except ImportError:
+    logger.info("bcut-asr 已成功加载")
+except ImportError as e:
     BCUT_ASR_AVAILABLE = False
-    logger.warning("bcut-asr未安装，请运行: pip install bcut-asr")
+    logger.warning(f"bcut-asr 未安装或无法加载: {e}")
+    logger.warning("请确保 bcut-asr 目录存在，或运行: pip install bcut-asr")
 
 
 def generate_subtitle_for_video(
