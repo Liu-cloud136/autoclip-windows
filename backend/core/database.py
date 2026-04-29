@@ -55,11 +55,18 @@ if "sqlite" in DATABASE_URL:
         db_path = Path(db_path_str)
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
+def _enable_sqlite_wal(dbapi_connection, connection_record):
+    """启用SQLite的WAL模式以支持更好的并发"""
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA busy_timeout=30000")
+    cursor.close()
+
 # 创建数据库引擎
 if "sqlite" in DATABASE_URL:
-    # SQLite配置 - 优化连接池
-    # SQLite使用StaticPool是最合适的，因为SQLite不支持真正的连接池
-    # StaticPool维护单个连接，适合SQLite的单线程写入特性
+    # SQLite配置 - 优化连接池和并发
+    # 启用WAL模式以支持更好的多进程并发
     engine = create_engine(
         DATABASE_URL,
         connect_args={
@@ -71,6 +78,10 @@ if "sqlite" in DATABASE_URL:
         pool_pre_ping=True,              # 连接健康检查，避免使用失效的连接
         echo=False
     )
+    
+    # 注册事件监听器以在每个连接上启用WAL模式
+    from sqlalchemy import event
+    event.listen(engine, "connect", _enable_sqlite_wal)
 elif "postgresql" in DATABASE_URL or "postgres" in DATABASE_URL:
     # PostgreSQL配置 - 生产环境优化
     # 使用QueuePool进行连接池管理，适合高并发场景
