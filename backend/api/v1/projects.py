@@ -43,13 +43,28 @@ async def upload_files(
     video_file: UploadFile = File(...),
     project_name: str = Form(...),
     video_category: Optional[str] = Form(None),
+    danmaku_file: Optional[UploadFile] = File(None),
+    danmaku_source_type: str = Form("bilibili"),
     project_service: ProjectService = Depends(get_project_service)
 ):
-    """Upload video file to create a new project. AI will automatically generate subtitles using Whisper."""
+    """Upload video file to create a new project. AI will automatically generate subtitles using Whisper.
+    Optional: upload danmaku file for better clip scoring.
+    """
     try:
         # 验证视频文件类型
         if not video_file.filename.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
             raise HTTPException(status_code=400, detail="Invalid video file format")
+
+        # 验证弹幕文件类型（如果提供）
+        danmaku_file_info = None
+        if danmaku_file:
+            danmaku_ext = Path(danmaku_file.filename).suffix.lower()
+            allowed_danmaku_extensions = ['.xml', '.json', '.ass', '.txt']
+            if danmaku_ext not in allowed_danmaku_extensions:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid danmaku file format. Allowed: {', '.join(allowed_danmaku_extensions)}"
+                )
 
         # 创建项目数据
         project_data = ProjectCreate(
@@ -89,6 +104,110 @@ async def upload_files(
 
         # 延迟更新项目视频路径，在异步任务中统一提交，减少数据库操作
         project.video_path = str(video_path)
+        
+        # 处理弹幕文件（如果提供）
+        if danmaku_file:
+            try:
+                from models.danmaku import DanmakuFile, DanmakuFileStatus, DanmakuSourceType
+                from utils.danmaku_parser import DanmakuParser, save_danmaku_to_json
+                from core.unified_config import get_config
+                
+                # 获取弹幕存储目录
+                config = get_config()
+                danmaku_dir = config.paths.data_dir / "danmaku"
+                danmaku_dir.mkdir(parents=True, exist_ok=True)
+                
+                import uuid
+                file_id = str(uuid.uuid4())
+                safe_filename = f"{file_id}{danmaku_ext}"
+                saved_path = danmaku_dir / safe_filename
+                
+                # 保存弹幕文件
+                danmaku_content = await danmaku_file.read()
+                saved_path.write_bytes(danmaku_content)
+                
+                # 解析弹幕来源类型
+                try:
+                    source_type_enum = DanmakuSourceType(danmaku_source_type.lower())
+                except ValueError:
+                    source_type_enum = DanmakuSourceType.BILIBILI
+                
+                # 使用 project_service 中的数据库会话
+                db = project_service.db
+                
+                # 创建弹幕文件记录
+                danmaku_file_record = DanmakuFile(
+                    file_name=danmaku_file.filename,
+                    file_path=str(saved_path),
+                    file_size=len(danmaku_content),
+                    source_type=source_type_enum,
+                    status=DanmakuFileStatus.UPLOADED,
+                    project_id=project_id
+                )
+                
+                db.add(danmaku_file_record)
+                db.commit()
+                db.refresh(danmaku_file_record)
+                
+                # 尝试解析弹幕文件
+                try:
+                    danmaku_list, metadata = DanmakuParser.parse(str(saved_path))
+                    
+                    danmaku_file_record.status = DanmakuFileStatus.PARSED
+                    danmaku_file_record.danmaku_count = len(danmaku_list)
+                    
+                    # 保存解析后的JSON
+                    parsed_json_path = danmaku_dir / f"{file_id}_parsed.json"
+                    save_danmaku_to_json(danmaku_list, str(parsed_json_path), metadata)
+                    
+                    # 更新元数据
+                    analysis_metadata = {
+                        'parsed_file': str(parsed_json_path),
+                        'original_file': str(saved_path),
+                        'danmaku_count': len(danmaku_list)
+                    }
+                    danmaku_file_record.analysis_metadata = analysis_metadata
+                    
+                    # 更新项目的弹幕路径
+                    project.danmaku_path = str(saved_path)
+                    
+                    db.commit()
+                    
+                    danmaku_file_info = {
+                        "danmaku_file_id": danmaku_file_record.id,
+                        "file_name": danmaku_file.filename,
+                        "danmaku_count": len(danmaku_list),
+                        "status": "parsed"
+                    }
+                    
+                    logger.info(f"弹幕文件解析完成: {len(danmaku_list)} 条弹幕")
+                    
+                except Exception as e:
+                    danmaku_file_record.status = DanmakuFileStatus.FAILED
+                    danmaku_file_record.error_message = str(e)
+                    db.commit()
+                    
+                    logger.error(f"弹幕文件解析失败: {e}")
+                    
+                    danmaku_file_info = {
+                        "danmaku_file_id": danmaku_file_record.id,
+                        "file_name": danmaku_file.filename,
+                        "status": "uploaded",
+                        "error": str(e)
+                    }
+                    
+            except Exception as e:
+                logger.error(f"处理弹幕文件失败: {e}")
+                # 弹幕文件处理失败不影响项目创建
+        
+        # 确保 project.video_path 的修改被提交（如果还没有被提交）
+        # 注意：原始代码注释说"延迟更新项目视频路径，在异步任务中统一提交"
+        # 但实际上如果没有弹幕文件，就不会有 commit 操作
+        # 所以我们需要确保项目的更改被提交
+        if not danmaku_file:
+            # 没有弹幕文件时，手动提交项目的更改
+            db = project_service.db
+            db.commit()
         
         # 缩略图生成移到异步任务中，不阻塞上传响应
 

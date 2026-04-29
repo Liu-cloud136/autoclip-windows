@@ -5,11 +5,13 @@
 
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-from sqlalchemy.orm import Session
-from sqlalchemy import desc, asc
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import desc, asc, func
 from pathlib import Path
 from .base import BaseRepository
 from models.project import Project, ProjectStatus, ProjectType
+from models.task import Task
+from models.clip import Clip
 
 class ProjectRepository(BaseRepository[Project]):
     """项目Repository类"""
@@ -251,4 +253,64 @@ class ProjectRepository(BaseRepository[Project]):
             "completed": completed_projects,
             "error": error_projects,
             "success_rate": (completed_projects / total_projects * 100) if total_projects > 0 else 0
+        }
+    
+    def get_projects_stats_batch(self, project_ids: List[str]) -> Dict[str, Dict[str, int]]:
+        """
+        批量获取多个项目的统计信息（clips_count, tasks_count）
+        
+        Args:
+            project_ids: 项目ID列表
+            
+        Returns:
+            字典，key为project_id，value为包含统计信息的字典
+        """
+        if not project_ids:
+            return {}
+        
+        clips_counts = self.db.query(
+            Clip.project_id,
+            func.count(Clip.id).label('count')
+        ).filter(
+            Clip.project_id.in_(project_ids)
+        ).group_by(Clip.project_id).all()
+        
+        tasks_counts = self.db.query(
+            Task.project_id,
+            func.count(Task.id).label('count')
+        ).filter(
+            Task.project_id.in_(project_ids)
+        ).group_by(Task.project_id).all()
+        
+        result = {pid: {'clips_count': 0, 'tasks_count': 0} for pid in project_ids}
+        
+        for row in clips_counts:
+            result[row.project_id]['clips_count'] = row.count
+        
+        for row in tasks_counts:
+            result[row.project_id]['tasks_count'] = row.count
+        
+        return result
+    
+    def get_project_stats_single(self, project_id: str) -> Dict[str, int]:
+        """
+        获取单个项目的统计信息（优化版，使用聚合查询）
+        
+        Args:
+            project_id: 项目ID
+            
+        Returns:
+            包含clips_count和tasks_count的字典
+        """
+        clips_count = self.db.query(func.count(Clip.id)).filter(
+            Clip.project_id == project_id
+        ).scalar() or 0
+        
+        tasks_count = self.db.query(func.count(Task.id)).filter(
+            Task.project_id == project_id
+        ).scalar() or 0
+        
+        return {
+            'clips_count': clips_count,
+            'tasks_count': tasks_count
         }
