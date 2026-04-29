@@ -76,12 +76,12 @@ class ProjectService(BaseService[Project, ProjectCreate, ProjectUpdate, ProjectR
         if not project:
             return None
 
-        # Get actual statistics from database
-        from models.clip import Clip
-        from models.task import Task
-
-        total_clips = self.db.query(Clip).filter(Clip.project_id == project_id).count()
-        total_tasks = self.db.query(Task).filter(Task.project_id == project_id).count()
+        # 使用优化的聚合查询获取统计信息（减少查询次数）
+        from repositories.project_repository import ProjectRepository
+        project_repo = ProjectRepository(self.db)
+        stats = project_repo.get_project_stats_single(project_id)
+        total_clips = stats['clips_count']
+        total_tasks = stats['tasks_count']
         
         # Get progress data from Redis if available
         progress_data = None
@@ -130,8 +130,10 @@ class ProjectService(BaseService[Project, ProjectCreate, ProjectUpdate, ProjectR
         pagination: PaginationParams,
         filters: Optional[ProjectFilter] = None
     ) -> ProjectListResponse:
-        """Get paginated projects with filtering."""
-        # Convert filters to dict
+        """Get paginated projects with filtering.
+        
+        优化版本：使用批量查询消除N+1问题，将2N+1次查询减少为3次查询。
+        """
         filter_dict = {}
         if filters:
             filter_data = filters.model_dump()
@@ -139,17 +141,22 @@ class ProjectService(BaseService[Project, ProjectCreate, ProjectUpdate, ProjectR
         
         items, pagination_response = self.get_paginated(pagination, filter_dict)
         
+        if not items:
+            return ProjectListResponse(items=[], pagination=pagination_response)
+        
+        # 批量获取所有项目的统计信息（优化：2次聚合查询替代2N次独立查询）
+        project_ids = [str(project.id) for project in items]
+        from repositories.project_repository import ProjectRepository
+        project_repo = ProjectRepository(self.db)
+        stats_map = project_repo.get_projects_stats_batch(project_ids)
+        
         # Convert to response schemas
         project_responses = []
         for project in items:
-            # Get actual statistics for each project
-            from models.clip import Clip
-            from models.task import Task
-
             project_id = str(project.id)
-            total_clips = self.db.query(Clip).filter(Clip.project_id == project_id).count()
-            total_tasks = self.db.query(Task).filter(Task.project_id == project_id).count()
-            total_collections = 0
+            stats = stats_map.get(project_id, {'clips_count': 0, 'tasks_count': 0})
+            total_clips = stats['clips_count']
+            total_tasks = stats['tasks_count']
             
             project_responses.append(ProjectResponse(
                 id=str(getattr(project, 'id', '')),
@@ -159,8 +166,8 @@ class ProjectService(BaseService[Project, ProjectCreate, ProjectUpdate, ProjectR
                 status=ProjectStatus(getattr(project, 'status').value) if hasattr(project, 'status') and getattr(project, 'status', None) is not None else ProjectStatus.PENDING,
                 source_url=project.project_metadata.get("source_url") if getattr(project, 'project_metadata', None) else None,
                 source_file=str(getattr(project, 'video_path', '')) if getattr(project, 'video_path', None) is not None else None,
-                video_path=str(getattr(project, 'video_path', '')) if getattr(project, 'video_path', None) is not None else None,  # 添加video_path字段供前端使用
-                thumbnail=getattr(project, 'thumbnail', None),  # 从数据库获取缩略图
+                video_path=str(getattr(project, 'video_path', '')) if getattr(project, 'video_path', None) is not None else None,
+                thumbnail=getattr(project, 'thumbnail', None),
                 settings=getattr(project, 'processing_config', {}) or {},
                 created_at=self._convert_utc_to_local(getattr(project, 'created_at', None)),
                 updated_at=self._convert_utc_to_local(getattr(project, 'updated_at', None)),
