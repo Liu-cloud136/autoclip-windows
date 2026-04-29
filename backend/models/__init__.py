@@ -6,6 +6,13 @@ from .base import Base, TimestampMixin
 from .project import Project
 from .clip import Clip
 from .task import Task, TaskStatus, TaskType
+from .danmaku import DanmakuFile, DanmakuSourceType, DanmakuFileStatus
+from .clip_edit import (
+    ClipEditSession, 
+    EditSegment, 
+    EditSessionStatus, 
+    EditSegmentType
+)
 
 __all__ = [
     "Base",
@@ -14,5 +21,12 @@ __all__ = [
     "Clip", 
     "Task",
     "TaskStatus",
-    "TaskType"
+    "TaskType",
+    "DanmakuFile",
+    "DanmakuSourceType",
+    "DanmakuFileStatus",
+    "ClipEditSession",
+    "EditSegment",
+    "EditSessionStatus",
+    "EditSegmentType"
 ]

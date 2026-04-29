@@ -69,6 +69,11 @@ class Project(BaseModel):
         nullable=True, 
         comment="字幕文件路径"
     )
+    danmaku_path = Column(
+        String(500),
+        nullable=True,
+        comment="弹幕文件路径"
+    )
     video_duration = Column(
         Integer, 
         nullable=True, 
@@ -112,6 +117,11 @@ class Project(BaseModel):
         """是否有字幕文件"""
         return self.subtitle_path is not None
     
+    @property
+    def has_danmaku_file(self) -> bool:
+        """是否有弹幕文件"""
+        return self.danmaku_path is not None
+    
     # 完成时间
     completed_at = Column(
         DateTime,
@@ -128,6 +138,11 @@ class Project(BaseModel):
     )
     tasks = relationship(
         "Task",
+        back_populates="project",
+        cascade="all, delete-orphan"
+    )
+    danmaku_files = relationship(
+        "DanmakuFile",
         back_populates="project",
         cascade="all, delete-orphan"
     )
@@ -158,3 +173,5 @@ class Project(BaseModel):
 # 复合索引：用于高效查询特定状态的项目并按时间排序
 Index('idx_project_status_created', Project.status, Project.completed_at)
 Index('idx_project_type_status', Project.project_type, Project.status)
+Index('idx_project_created_at', Project.created_at)
+Index('idx_project_status', Project.status)

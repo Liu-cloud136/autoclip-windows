@@ -321,6 +321,17 @@ class UnifiedWebSocketService:
         await self._broadcaster.broadcast(notification, topic=f"progress:project:{project_id}")
         logger.info(f"项目更新通知已发送: {project_id} - {status}")
     
+    async def broadcast_to_project(self, project_id: str, message: dict):
+        """
+        广播消息到指定项目的所有订阅者
+        
+        Args:
+            project_id: 项目ID
+            message: 要广播的消息字典
+        """
+        await self._broadcaster.broadcast(message, topic=f"progress:project:{project_id}")
+        logger.debug(f"已广播消息到项目 {project_id}: {message.get('type', 'unknown')}")
+    
     async def send_system_notification(self, notification_type: str, title: str, message: str,
                                        level: str = "info"):
         notification = {
@@ -633,6 +644,16 @@ class UnifiedWebSocketService:
 
 
 unified_websocket_service = UnifiedWebSocketService()
+
+
+def get_ws_service() -> UnifiedWebSocketService:
+    """
+    获取统一WebSocket服务单例
+    
+    Returns:
+        UnifiedWebSocketService 实例
+    """
+    return unified_websocket_service
 
 
 async def send_task_update(task_id: str, status: str, progress: Optional[int] = None,

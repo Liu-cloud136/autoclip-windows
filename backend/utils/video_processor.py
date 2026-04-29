@@ -760,3 +760,486 @@ class VideoProcessor:
                 logger.error(f"切片 {clip_id} 提取失败")
 
         return successful_clips
+    
+    @with_async_concurrency_limit(max_concurrent=2)
+    @staticmethod
+    async def merge_videos_async(
+        video_segments: List[Dict],
+        output_path: Path,
+        input_video: Optional[Path] = None,
+        progress_callback: Optional[Callable[[float], None]] = None,
+        use_stream_copy: bool = True,
+        use_hardware_accel: bool = True
+    ) -> bool:
+        """
+        异步合并多个视频片段
+        
+        有两种模式：
+        1. 使用 input_video 参数：直接从原始视频中提取多个时间段并合并（效率最高）
+        2. 使用已存在的视频文件路径列表：合并已存在的视频文件
+        
+        Args:
+            video_segments: 片段数据列表，每个元素包含：
+                - start_time: 开始时间（秒或FFmpeg时间格式）
+                - end_time: 结束时间（秒或FFmpeg时间格式）
+                - 或 video_path: 已存在的视频文件路径
+            output_path: 输出视频路径
+            input_video: 原始视频路径（可选，如果提供则直接从中提取片段）
+            progress_callback: 进度回调函数
+            use_stream_copy: 是否使用流复制
+            use_hardware_accel: 是否使用硬件加速
+            
+        Returns:
+            是否成功
+        """
+        try:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            if input_video and input_video.exists():
+                logger.info(f"从原始视频中提取并合并 {len(video_segments)} 个片段")
+                
+                filter_parts = []
+                concat_inputs = []
+                valid_segments = []
+                
+                for i, segment in enumerate(video_segments):
+                    start = segment.get('start_time')
+                    end = segment.get('end_time')
+                    
+                    if start is None or end is None:
+                        logger.warning(f"片段 {i} 缺少时间信息，跳过")
+                        continue
+                    
+                    if isinstance(start, (int, float)):
+                        start_sec = float(start)
+                    else:
+                        start_sec = VideoProcessor.convert_ffmpeg_time_to_seconds(
+                            VideoProcessor.convert_srt_time_to_ffmpeg_time(start)
+                        )
+                    
+                    if isinstance(end, (int, float)):
+                        end_sec = float(end)
+                    else:
+                        end_sec = VideoProcessor.convert_ffmpeg_time_to_seconds(
+                            VideoProcessor.convert_srt_time_to_ffmpeg_time(end)
+                        )
+                    
+                    duration = end_sec - start_sec
+                    if duration <= 0:
+                        logger.warning(f"片段 {i} 时长无效，跳过")
+                        continue
+                    
+                    valid_segments.append({
+                        'start_sec': start_sec,
+                        'end_sec': end_sec,
+                        'duration': duration
+                    })
+                    
+                    filter_parts.append(
+                        f"[0:v]trim=start={start_sec}:duration={duration},setpts=PTS-STARTPTS[v{i}]; "
+                        f"[0:a]atrim=start={start_sec}:duration={duration},asetpts=PTS-STARTPTS[a{i}]"
+                    )
+                    concat_inputs.append(f"[v{i}][a{i}]")
+                
+                if not filter_parts:
+                    raise VideoProcessingError(
+                        message="没有有效的片段可以合并",
+                        video_path=str(input_video),
+                        step_name="视频合并"
+                    )
+                
+                filter_complex = "; ".join(filter_parts)
+                concat_filter = f"{''.join(concat_inputs)}concat=n={len(filter_parts)}:v=1:a=1[outv][outa]"
+                full_filter = f"{filter_complex}; {concat_filter}"
+                
+                if use_stream_copy:
+                    video_encoder = 'copy'
+                    audio_encoder = 'copy'
+                else:
+                    video_encoder = 'h264_nvenc' if use_hardware_accel else 'libx264'
+                    audio_encoder = 'aac'
+                
+                cmd = [
+                    'ffmpeg',
+                    '-i', str(input_video),
+                    '-filter_complex', full_filter,
+                    '-map', '[outv]',
+                    '-map', '[outa]',
+                    '-c:v', video_encoder,
+                    '-c:a', audio_encoder,
+                    '-movflags', '+faststart',
+                    '-y',
+                    str(output_path)
+                ]
+                
+                if not use_stream_copy:
+                    if not use_hardware_accel:
+                        cmd.extend(['-preset', 'p6', '-crf', '23'])
+                    cmd.extend(['-b:a', '128k'])
+                
+                logger.info(f"执行视频合并命令: {' '.join(cmd)}")
+                
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                
+                if progress_callback and valid_segments:
+                    total_duration = sum(seg['duration'] for seg in valid_segments)
+                    
+                    while True:
+                        line = await process.stderr.readline()
+                        if not line:
+                            break
+                        line_str = line.decode('utf-8', errors='ignore')
+                        time_match = re.search(r'time=(\d+):(\d+):(\d+)\.(\d+)', line_str)
+                        if time_match and total_duration > 0:
+                            hours = int(time_match.group(1))
+                            minutes = int(time_match.group(2))
+                            seconds = int(time_match.group(3))
+                            centiseconds = int(time_match.group(4))
+                            current_time = hours * 3600 + minutes * 60 + seconds + centiseconds / 100
+                            progress = min(100, (current_time / total_duration) * 100)
+                            progress_callback(progress)
+                
+                await process.wait()
+                
+                if process.returncode == 0 and output_path.exists():
+                    logger.info(f"视频合并成功: {output_path}")
+                    return True
+                else:
+                    stderr_data = await process.stderr.read()
+                    logger.error(f"视频合并失败: {stderr_data.decode('utf-8', errors='ignore')}")
+                    raise VideoProcessingError(
+                        message="FFmpeg 视频合并失败",
+                        video_path=str(input_video),
+                        step_name="视频合并",
+                        details={"stderr": stderr_data.decode('utf-8', errors='ignore')},
+                        cause=subprocess.CalledProcessError(process.returncode, cmd)
+                    )
+            
+            else:
+                logger.info(f"合并 {len(video_segments)} 个已存在的视频文件")
+                
+                existing_videos = []
+                for segment in video_segments:
+                    video_path = segment.get('video_path')
+                    if video_path:
+                        path = Path(video_path)
+                        if path.exists():
+                            existing_videos.append(path)
+                        else:
+                            logger.warning(f"视频文件不存在: {video_path}")
+                
+                if not existing_videos:
+                    raise VideoProcessingError(
+                        message="没有有效的视频文件可以合并",
+                        video_path="",
+                        step_name="视频合并"
+                    )
+                
+                concat_file = output_path.parent / f"concat_{output_path.stem}.txt"
+                try:
+                    with open(concat_file, 'w', encoding='utf-8') as f:
+                        for video_path in existing_videos:
+                            f.write(f"file '{video_path.absolute()}'\n")
+                    
+                    if use_stream_copy:
+                        cmd = [
+                            'ffmpeg',
+                            '-f', 'concat',
+                            '-safe', '0',
+                            '-i', str(concat_file),
+                            '-c', 'copy',
+                            '-movflags', '+faststart',
+                            '-y',
+                            str(output_path)
+                        ]
+                    else:
+                        video_encoder = 'h264_nvenc' if use_hardware_accel else 'libx264'
+                        
+                        inputs = []
+                        filter_parts = []
+                        concat_inputs = []
+                        
+                        for i, video_path in enumerate(existing_videos):
+                            inputs.extend(['-i', str(video_path)])
+                            filter_parts.append(f"[{i}:v]settb=AVTB,setpts=PTS-STARTPTS[v{i}]; [{i}:a]asetpts=PTS-STARTPTS[a{i}]")
+                            concat_inputs.append(f"[v{i}][a{i}]")
+                        
+                        filter_complex = "; ".join(filter_parts)
+                        concat_filter = f"{''.join(concat_inputs)}concat=n={len(existing_videos)}:v=1:a=1[outv][outa]"
+                        full_filter = f"{filter_complex}; {concat_filter}"
+                        
+                        cmd = [
+                            'ffmpeg',
+                            *inputs,
+                            '-filter_complex', full_filter,
+                            '-map', '[outv]',
+                            '-map', '[outa]',
+                            '-c:v', video_encoder,
+                            '-preset', 'p6',
+                            '-crf', '23',
+                            '-c:a', 'aac',
+                            '-b:a', '128k',
+                            '-movflags', '+faststart',
+                            '-y',
+                            str(output_path)
+                        ]
+                    
+                    logger.info(f"执行视频合并命令: {' '.join(cmd)}")
+                    
+                    process = await asyncio.create_subprocess_exec(
+                        *cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    
+                    await process.wait()
+                    
+                    if process.returncode == 0 and output_path.exists():
+                        logger.info(f"视频合并成功: {output_path}")
+                        return True
+                    else:
+                        stderr_data = await process.stderr.read()
+                        logger.error(f"视频合并失败: {stderr_data.decode('utf-8', errors='ignore')}")
+                        raise VideoProcessingError(
+                            message="FFmpeg 视频合并失败",
+                            video_path="",
+                            step_name="视频合并",
+                            details={"stderr": stderr_data.decode('utf-8', errors='ignore')},
+                            cause=subprocess.CalledProcessError(process.returncode, cmd)
+                        )
+                finally:
+                    if concat_file.exists():
+                        concat_file.unlink()
+        
+        except VideoProcessingError:
+            raise
+        except Exception as e:
+            logger.error(f"视频合并异常: {str(e)}")
+            raise VideoProcessingError(
+                message=f"视频合并异常: {str(e)}",
+                video_path="",
+                step_name="视频合并",
+                cause=e
+            )
+    
+    @staticmethod
+    def merge_videos(
+        video_segments: List[Dict],
+        output_path: Path,
+        input_video: Optional[Path] = None,
+        progress_callback: Optional[Callable[[float], None]] = None,
+        use_stream_copy: bool = True,
+        use_hardware_accel: bool = True
+    ) -> bool:
+        """
+        合并多个视频片段（同步版本）
+        
+        Args:
+            video_segments: 片段数据列表
+            output_path: 输出视频路径
+            input_video: 原始视频路径（可选）
+            progress_callback: 进度回调函数
+            use_stream_copy: 是否使用流复制
+            use_hardware_accel: 是否使用硬件加速
+            
+        Returns:
+            是否成功
+        """
+        try:
+            loop = asyncio.get_event_loop()
+            return loop.run_until_complete(
+                VideoProcessor.merge_videos_async(
+                    video_segments,
+                    output_path,
+                    input_video,
+                    progress_callback,
+                    use_stream_copy,
+                    use_hardware_accel
+                )
+            )
+        except RuntimeError:
+            import asyncio
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            try:
+                return new_loop.run_until_complete(
+                    VideoProcessor.merge_videos_async(
+                        video_segments,
+                        output_path,
+                        input_video,
+                        progress_callback,
+                        use_stream_copy,
+                        use_hardware_accel
+                    )
+                )
+            finally:
+                new_loop.close()
+    
+    @with_async_concurrency_limit(max_concurrent=3)
+    @staticmethod
+    async def extract_clip_precise_async(
+        input_video: Path,
+        output_path: Path,
+        start_time: float,
+        end_time: float,
+        progress_callback: Optional[Callable[[float], None]] = None,
+        use_hardware_accel: bool = True
+    ) -> bool:
+        """
+        精准提取视频片段（使用编码模式，确保帧级精确）
+        
+        与 extract_clip 不同，此方法总是使用编码模式（不使用流复制），
+        这样可以确保在任意时间点精确切割，而不受关键帧限制。
+        
+        Args:
+            input_video: 输入视频路径
+            output_path: 输出视频路径
+            start_time: 开始时间（秒，可以是浮点数如 10.5）
+            end_time: 结束时间（秒，可以是浮点数如 20.3）
+            progress_callback: 进度回调函数
+            use_hardware_accel: 是否使用硬件加速
+            
+        Returns:
+            是否成功
+        """
+        try:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            duration = end_time - start_time
+            if duration <= 0:
+                raise VideoProcessingError(
+                    message="片段时长必须大于0",
+                    video_path=str(input_video),
+                    step_name="精准视频提取"
+                )
+            
+            video_encoder = 'h264_nvenc' if use_hardware_accel else 'libx264'
+            
+            filter_complex = (
+                f"[0:v]trim=start={start_time}:duration={duration},setpts=PTS-STARTPTS[outv]; "
+                f"[0:a]atrim=start={start_time}:duration={duration},asetpts=PTS-STARTPTS[outa]"
+            )
+            
+            cmd = [
+                'ffmpeg',
+                '-i', str(input_video),
+                '-filter_complex', filter_complex,
+                '-map', '[outv]',
+                '-map', '[outa]',
+                '-c:v', video_encoder,
+                '-preset', 'p6',
+                '-crf', '23',
+                '-c:a', 'aac',
+                '-b:a', '128k',
+                '-movflags', '+faststart',
+                '-y',
+                str(output_path)
+            ]
+            
+            logger.info(f"精准提取视频片段: start={start_time}s, end={end_time}s, 时长={duration:.3f}s")
+            
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            if progress_callback and duration > 0:
+                while True:
+                    line = await process.stderr.readline()
+                    if not line:
+                        break
+                    line_str = line.decode('utf-8', errors='ignore')
+                    time_match = re.search(r'time=(\d+):(\d+):(\d+)\.(\d+)', line_str)
+                    if time_match:
+                        hours = int(time_match.group(1))
+                        minutes = int(time_match.group(2))
+                        seconds = int(time_match.group(3))
+                        centiseconds = int(time_match.group(4))
+                        current_time = hours * 3600 + minutes * 60 + seconds + centiseconds / 100
+                        progress = min(100, (current_time / duration) * 100)
+                        progress_callback(progress)
+            
+            await process.wait()
+            
+            if process.returncode == 0 and output_path.exists():
+                logger.info(f"精准提取视频片段成功: {output_path}")
+                return True
+            else:
+                stderr_data = await process.stderr.read()
+                logger.error(f"精准提取视频片段失败: {stderr_data.decode('utf-8', errors='ignore')}")
+                raise VideoProcessingError(
+                    message="FFmpeg 精准视频提取失败",
+                    video_path=str(input_video),
+                    step_name="精准视频提取",
+                    details={"stderr": stderr_data.decode('utf-8', errors='ignore')},
+                    cause=subprocess.CalledProcessError(process.returncode, cmd)
+                )
+        
+        except VideoProcessingError:
+            raise
+        except Exception as e:
+            logger.error(f"精准视频提取异常: {str(e)}")
+            raise VideoProcessingError(
+                message=f"精准视频提取异常: {str(e)}",
+                video_path=str(input_video),
+                step_name="精准视频提取",
+                cause=e
+            )
+    
+    @staticmethod
+    def extract_clip_precise(
+        input_video: Path,
+        output_path: Path,
+        start_time: float,
+        end_time: float,
+        progress_callback: Optional[Callable[[float], None]] = None,
+        use_hardware_accel: bool = True
+    ) -> bool:
+        """
+        精准提取视频片段（同步版本）
+        
+        Args:
+            input_video: 输入视频路径
+            output_path: 输出视频路径
+            start_time: 开始时间（秒）
+            end_time: 结束时间（秒）
+            progress_callback: 进度回调函数
+            use_hardware_accel: 是否使用硬件加速
+            
+        Returns:
+            是否成功
+        """
+        try:
+            loop = asyncio.get_event_loop()
+            return loop.run_until_complete(
+                VideoProcessor.extract_clip_precise_async(
+                    input_video,
+                    output_path,
+                    start_time,
+                    end_time,
+                    progress_callback,
+                    use_hardware_accel
+                )
+            )
+        except RuntimeError:
+            import asyncio
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            try:
+                return new_loop.run_until_complete(
+                    VideoProcessor.extract_clip_precise_async(
+                        input_video,
+                        output_path,
+                        start_time,
+                        end_time,
+                        progress_callback,
+                        use_hardware_accel
+                    )
+                )
+            finally:
+                new_loop.close()

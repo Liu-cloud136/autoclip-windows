@@ -263,6 +263,92 @@ export interface LogsResponse {
 
 // ============ Axios 类型 ============
 
+// ============ 切片编辑相关类型 ============
+
+export enum EditSessionStatus {
+  DRAFT = 'draft',
+  PROCESSING = 'processing',
+  COMPLETED = 'completed',
+  FAILED = 'failed'
+}
+
+export enum EditSegmentType {
+  ORIGINAL = 'original',
+  CROPPED = 'cropped'
+}
+
+export interface EditSegment {
+  id: string
+  session_id: string
+  original_clip_id: string | null
+  original_clip_title: string | null
+  original_clip_thumbnail: string | null
+  start_time: number
+  end_time: number
+  original_start_time: number
+  original_end_time: number
+  duration: number
+  segment_order: number
+  segment_type: EditSegmentType
+  created_at: string
+  updated_at: string
+  thumbnail_path?: string
+}
+
+export interface ClipEditSession {
+  id: string
+  name: string
+  status: EditSessionStatus
+  project_id: string
+  output_video_path: string | null
+  total_duration: number
+  created_at: string
+  updated_at: string
+  segments: EditSegment[]
+}
+
+export interface CreateEditSessionRequest {
+  name: string
+  project_id: string
+}
+
+export interface UpdateEditSessionRequest {
+  name?: string
+}
+
+export interface AddSegmentRequest {
+  original_clip_id: string
+  start_time?: number
+  end_time?: number
+  segment_order?: number
+}
+
+export interface AddClipsToSessionRequest {
+  clip_ids: string[]
+}
+
+export interface ReorderSegmentsRequest {
+  segment_orders: Array<{
+    segment_id: string
+    segment_order: number
+  }>
+}
+
+export interface CropSegmentRequest {
+  start_time: number
+  end_time: number
+}
+
+export interface SplitSegmentRequest {
+  split_time: number
+}
+
+export interface GenerateVideoRequest {
+  output_name?: string
+  is_async?: boolean
+}
+
+// ============ Axios 类型 ============
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
 
 export interface ApiClient extends AxiosInstance {

@@ -4,7 +4,8 @@
 """
 
 import enum
-from sqlalchemy import Column, String, Integer, Float, ForeignKey, Enum, JSON, DateTime, Text
+from datetime import datetime
+from sqlalchemy import Column, String, Integer, Float, ForeignKey, Enum, JSON, DateTime, Text, Index
 from sqlalchemy.orm import relationship
 from .base import BaseModel, TimestampMixin
 
@@ -222,3 +223,12 @@ class Task(BaseModel, TimestampMixin):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None
         }
+
+Index('idx_task_project_id', Task.project_id)
+Index('idx_task_status', Task.status)
+Index('idx_task_task_type', Task.task_type)
+Index('idx_task_created_at', Task.created_at)
+Index('idx_task_celery_task_id', Task.celery_task_id)
+Index('idx_task_project_status', Task.project_id, Task.status)
+Index('idx_task_project_created', Task.project_id, Task.created_at)
+Index('idx_task_status_created', Task.status, Task.created_at)
