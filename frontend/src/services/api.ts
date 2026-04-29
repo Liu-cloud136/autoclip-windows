@@ -696,3 +696,227 @@ export const danmakuApi = {
     return result
   },
 }
+
+// 切片编辑相关 API
+export const clipEditApi = {
+  // 创建编辑会话
+  createSession: async (
+    projectId: string,
+    name: string = '未命名编辑'
+  ): Promise<{
+    success: boolean
+    session: Record<string, unknown>
+    message?: string
+  }> => {
+    const result = await api.post('clip-edit/sessions/', {
+      name,
+      project_id: projectId,
+    })
+    return result
+  },
+
+  // 获取编辑会话
+  getSession: async (
+    sessionId: string
+  ): Promise<{
+    success: boolean
+    session: Record<string, unknown>
+  }> => {
+    const result = await api.get(`clip-edit/sessions/${sessionId}`)
+    return result
+  },
+
+  // 获取项目的所有编辑会话
+  getProjectSessions: async (
+    projectId: string
+  ): Promise<{
+    success: boolean
+    sessions: Array<Record<string, unknown>>
+  }> => {
+    const result = await api.get(`clip-edit/projects/${projectId}/sessions/`)
+    return result
+  },
+
+  // 获取或创建默认编辑会话
+  getOrCreateDefaultSession: async (
+    projectId: string
+  ): Promise<{
+    success: boolean
+    session: Record<string, unknown>
+    is_new: boolean
+  }> => {
+    const result = await api.post(`clip-edit/projects/${projectId}/default-session/`)
+    return result
+  },
+
+  // 更新编辑会话
+  updateSession: async (
+    sessionId: string,
+    name?: string
+  ): Promise<{
+    success: boolean
+    session: Record<string, unknown>
+  }> => {
+    const result = await api.put(`clip-edit/sessions/${sessionId}`, {
+      name,
+    })
+    return result
+  },
+
+  // 删除编辑会话
+  deleteSession: async (
+    sessionId: string
+  ): Promise<{
+    success: boolean
+    message: string
+  }> => {
+    const result = await api.delete(`clip-edit/sessions/${sessionId}`)
+    return result
+  },
+
+  // 添加片段到会话
+  addSegment: async (
+    sessionId: string,
+    originalClipId: string,
+    startTime?: number,
+    endTime?: number,
+    segmentOrder?: number
+  ): Promise<{
+    success: boolean
+    segment: Record<string, unknown>
+  }> => {
+    const result = await api.post(`clip-edit/sessions/${sessionId}/segments/`, {
+      original_clip_id: originalClipId,
+      start_time: startTime,
+      end_time: endTime,
+      segment_order: segmentOrder,
+    })
+    return result
+  },
+
+  // 批量添加切片到会话
+  addClipsToSession: async (
+    sessionId: string,
+    clipIds: string[]
+  ): Promise<{
+    success: boolean
+    segments: Array<Record<string, unknown>>
+    added_count: number
+  }> => {
+    const result = await api.post(`clip-edit/sessions/${sessionId}/add-clips/`, {
+      clip_ids: clipIds,
+    })
+    return result
+  },
+
+  // 获取会话的所有片段
+  getSessionSegments: async (
+    sessionId: string
+  ): Promise<{
+    success: boolean
+    segments: Array<Record<string, unknown>>
+  }> => {
+    const result = await api.get(`clip-edit/sessions/${sessionId}/segments/`)
+    return result
+  },
+
+  // 更新片段
+  updateSegment: async (
+    segmentId: string,
+    updates: {
+      start_time?: number
+      end_time?: number
+      segment_order?: number
+    }
+  ): Promise<{
+    success: boolean
+    segment: Record<string, unknown>
+  }> => {
+    const result = await api.put(`clip-edit/segments/${segmentId}`, updates)
+    return result
+  },
+
+  // 删除片段
+  deleteSegment: async (
+    segmentId: string
+  ): Promise<{
+    success: boolean
+    message: string
+  }> => {
+    const result = await api.delete(`clip-edit/segments/${segmentId}`)
+    return result
+  },
+
+  // 重排片段顺序
+  reorderSegments: async (
+    sessionId: string,
+    segmentOrders: Array<{
+      segment_id: string
+      segment_order: number
+    }>
+  ): Promise<{
+    success: boolean
+    segments: Array<Record<string, unknown>>
+  }> => {
+    const result = await api.post(`clip-edit/sessions/${sessionId}/reorder/`, {
+      segment_orders: segmentOrders,
+    })
+    return result
+  },
+
+  // 裁剪片段
+  cropSegment: async (
+    segmentId: string,
+    startTime: number,
+    endTime: number
+  ): Promise<{
+    success: boolean
+    segment: Record<string, unknown>
+  }> => {
+    const result = await api.post(`clip-edit/segments/${segmentId}/crop/`, {
+      start_time: startTime,
+      end_time: endTime,
+    })
+    return result
+  },
+
+  // 分割片段
+  splitSegment: async (
+    segmentId: string,
+    splitTime: number
+  ): Promise<{
+    success: boolean
+    original_segment: Record<string, unknown>
+    new_segment: Record<string, unknown>
+  }> => {
+    const result = await api.post(`clip-edit/segments/${segmentId}/split/`, {
+      split_time: splitTime,
+    })
+    return result
+  },
+
+  // 生成合并视频
+  generateVideo: async (
+    sessionId: string,
+    outputName?: string,
+    isAsync: boolean = true
+  ): Promise<{
+    success: boolean
+    status: string
+    message: string
+    session_id: string
+    task_id?: string
+    output_path?: string
+  }> => {
+    const result = await api.post(`clip-edit/sessions/${sessionId}/generate-video/`, {
+      output_name: outputName,
+      is_async: isAsync,
+    })
+    return result
+  },
+
+  // 获取编辑会话的缩略图 URL
+  getSegmentThumbnailUrl: (projectId: string, segmentId: string): string => {
+    return getApiUrl(`/files/projects/${projectId}/segments/${segmentId}/thumbnail`)
+  },
+}

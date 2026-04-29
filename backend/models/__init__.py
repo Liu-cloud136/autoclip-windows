@@ -7,6 +7,12 @@ from .project import Project
 from .clip import Clip
 from .task import Task, TaskStatus, TaskType
 from .danmaku import DanmakuFile, DanmakuSourceType, DanmakuFileStatus
+from .clip_edit import (
+    ClipEditSession, 
+    EditSegment, 
+    EditSessionStatus, 
+    EditSegmentType
+)
 
 __all__ = [
     "Base",
@@ -18,5 +24,9 @@ __all__ = [
     "TaskType",
     "DanmakuFile",
     "DanmakuSourceType",
-    "DanmakuFileStatus"
+    "DanmakuFileStatus",
+    "ClipEditSession",
+    "EditSegment",
+    "EditSessionStatus",
+    "EditSegmentType"
 ]
