@@ -1,22 +1,33 @@
 import React, { useState } from 'react'
-import { Button, message, Progress, Space, Typography, Input } from 'antd'
-import { InboxOutlined, VideoCameraOutlined } from '@ant-design/icons'
+import { Button, message, Progress, Space, Typography, Input, Select } from 'antd'
+import { InboxOutlined, VideoCameraOutlined, MessageOutlined } from '@ant-design/icons'
 import { useDropzone } from 'react-dropzone'
 import { projectApi } from '../services/api'
 import { useProjectStore } from '../store/useProjectStore'
 
 const { Text, Title } = Typography
+const { Option } = Select
 
 interface FileUploadProps {
   onUploadSuccess?: (projectId: string) => void
 }
 
+const DANMAKU_SOURCE_TYPES = [
+  { value: 'bilibili', label: '哔哩哔哩 (Bilibili)' },
+  { value: 'youtube', label: 'YouTube' },
+  { value: 'douyu', label: '斗鱼 (Douyu)' },
+  { value: 'huya', label: '虎牙 (Huya)' },
+  { value: 'custom', label: '自定义 (Custom)' },
+]
+
 const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [projectName, setProjectName] = useState('')
+  const [danmakuSourceType, setDanmakuSourceType] = useState('bilibili')
   const [files, setFiles] = useState<{
     video?: File
+    danmaku?: File
   }>({})
 
   const { addProject } = useProjectStore()
@@ -29,9 +40,9 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
 
       if (['mp4', 'avi', 'mov', 'mkv', 'webm'].includes(extension || '')) {
         newFiles.video = file
-        // 自动设置项目名称为视频文件名（去掉扩展名）
-        // 每次选择新视频文件时都更新项目名称
         setProjectName(file.name.replace(/\.[^/.]+$/, ''))
+      } else if (['xml', 'json', 'ass', 'txt'].includes(extension || '')) {
+        newFiles.danmaku = file
       }
     })
 
@@ -41,9 +52,12 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
-      'video/*': ['.mp4', '.avi', '.mov', '.mkv', '.webm']
+      'video/*': ['.mp4', '.avi', '.mov', '.mkv', '.webm'],
+      'application/xml': ['.xml'],
+      'application/json': ['.json'],
+      'text/plain': ['.ass', '.txt']
     },
-    multiple: false // 只允许上传单个视频文件
+    multiple: true
   })
 
   const handleUpload = async () => {
@@ -63,12 +77,16 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
     try {
       console.log('开始上传文件:', {
         video_file: files.video.name,
-        project_name: projectName.trim()
+        danmaku_file: files.danmaku?.name,
+        project_name: projectName.trim(),
+        danmaku_source_type: danmakuSourceType
       })
 
       const newProject = await projectApi.uploadFiles({
         video_file: files.video,
-        project_name: projectName.trim()
+        danmaku_file: files.danmaku,
+        project_name: projectName.trim(),
+        danmaku_source_type: danmakuSourceType
       }, {
         onUploadProgress: (progressEvent) => {
           const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total)
@@ -79,7 +97,8 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
       console.log('上传成功，项目信息:', newProject)
       
       addProject(newProject)
-      message.success('项目创建成功！AI正在自动生成字幕并处理视频，请稍候...')
+      const danmakuMessage = files.danmaku ? `弹幕文件: ${files.danmaku.name}` : ''
+      message.success(`项目创建成功！${danmakuMessage ? danmakuMessage + '，' : ''}AI正在自动处理视频，请稍候...`)
 
       // 重置状态
       setFiles({})
@@ -140,7 +159,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
     }
   }
 
-  const removeFile = (type: 'video') => {
+  const removeFile = (type: 'video' | 'danmaku') => {
     setFiles(prev => {
       const newFiles = { ...prev }
       delete newFiles[type]
@@ -203,7 +222,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
             {isDragActive ? '松开鼠标导入文件' : '点击或拖拽文件到此区域'}
           </Text>
           <Text style={{ color: '#666666', fontSize: '14px', lineHeight: '1.5' }}>
-            支持 MP4、AVI、MOV、MKV、WebM 格式
+            支持视频（MP4、AVI、MOV、MKV、WebM）和弹幕（XML、JSON、ASS、TXT）格式
           </Text>
         </div>
       </div>
@@ -261,7 +280,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
                     <VideoCameraOutlined style={{ color: '#ffffff', fontSize: '16px' }} />
                   </div>
                   <div>
-                    <Text style={{ color: '#ffffff', fontWeight: 600, display: 'block', fontSize: '14px' }}>
+                    <Text style={{ color: '#1a1a1a', fontWeight: 600, display: 'block', fontSize: '14px' }}>
                       {files.video.name}
                     </Text>
                     <Text style={{ color: '#999999', fontSize: '13px' }}>
@@ -285,9 +304,78 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
               </div>
             )}
 
+            {files.danmaku && (
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'space-between',
+                padding: '16px',
+                background: '#ffffff',
+                borderRadius: '12px',
+                border: '1px solid #e0e0e0'
+              }}>
+                <Space size="middle">
+                  <div style={{
+                    width: '36px',
+                    height: '36px',
+                    background: 'linear-gradient(135deg, #52c41a 0%, #73d13d 100%)',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: '0 4px 12px rgba(82, 196, 26, 0.3)'
+                  }}>
+                    <MessageOutlined style={{ color: '#ffffff', fontSize: '16px' }} />
+                  </div>
+                  <div>
+                    <Text style={{ color: '#1a1a1a', fontWeight: 600, display: 'block', fontSize: '14px' }}>
+                      {files.danmaku.name}
+                    </Text>
+                    <Text style={{ color: '#999999', fontSize: '13px' }}>
+                      {(files.danmaku.size / 1024).toFixed(2)} KB
+                    </Text>
+                  </div>
+                </Space>
+                <Button 
+                  size="small" 
+                  type="text" 
+                  onClick={() => removeFile('danmaku')}
+                  style={{ 
+                    color: '#ff6b6b',
+                    borderRadius: '8px',
+                    padding: '4px 12px',
+                    fontSize: '12px'
+                  }}
+                >
+                  移除
+                </Button>
+              </div>
+            )}
           </Space>
-          
+        </div>
+      )}
 
+      {/* 弹幕来源类型选择器 - 只有在选择弹幕文件后才显示 */}
+      {files.danmaku && (
+        <div style={{ marginBottom: '16px' }}>
+          <Text strong style={{ color: '#1a1a1a', fontSize: '14px', marginBottom: '8px', display: 'block' }}>
+            弹幕来源类型
+          </Text>
+          <Select
+            value={danmakuSourceType}
+            onChange={setDanmakuSourceType}
+            style={{ width: '100%' }}
+            size="large"
+          >
+            {DANMAKU_SOURCE_TYPES.map(type => (
+              <Option key={type.value} value={type.value}>
+                {type.label}
+              </Option>
+            ))}
+          </Select>
+          <Text type="secondary" style={{ fontSize: '12px', marginTop: '4px', display: 'block' }}>
+            选择弹幕来源平台，以便正确解析弹幕格式
+          </Text>
         </div>
       )}
 
