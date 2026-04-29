@@ -45,8 +45,7 @@ async def upload_files(
     video_category: Optional[str] = Form(None),
     danmaku_file: Optional[UploadFile] = File(None),
     danmaku_source_type: str = Form("bilibili"),
-    project_service: ProjectService = Depends(get_project_service),
-    db: Session = Depends(get_db)
+    project_service: ProjectService = Depends(get_project_service)
 ):
     """Upload video file to create a new project. AI will automatically generate subtitles using Whisper.
     Optional: upload danmaku file for better clip scoring.
@@ -133,6 +132,9 @@ async def upload_files(
                 except ValueError:
                     source_type_enum = DanmakuSourceType.BILIBILI
                 
+                # 使用 project_service 中的数据库会话
+                db = project_service.db
+                
                 # 创建弹幕文件记录
                 danmaku_file_record = DanmakuFile(
                     file_name=danmaku_file.filename,
@@ -197,6 +199,15 @@ async def upload_files(
             except Exception as e:
                 logger.error(f"处理弹幕文件失败: {e}")
                 # 弹幕文件处理失败不影响项目创建
+        
+        # 确保 project.video_path 的修改被提交（如果还没有被提交）
+        # 注意：原始代码注释说"延迟更新项目视频路径，在异步任务中统一提交"
+        # 但实际上如果没有弹幕文件，就不会有 commit 操作
+        # 所以我们需要确保项目的更改被提交
+        if not danmaku_file:
+            # 没有弹幕文件时，手动提交项目的更改
+            db = project_service.db
+            db.commit()
         
         # 缩略图生成移到异步任务中，不阻塞上传响应
 
