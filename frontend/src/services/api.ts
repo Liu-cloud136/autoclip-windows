@@ -94,7 +94,9 @@ api.interceptors.response.use(
 
 export interface UploadFilesRequest {
   video_file: File
+  danmaku_file?: File
   project_name: string
+  danmaku_source_type?: string
 }
 
 export interface UploadFilesOptions {
@@ -229,6 +231,13 @@ export const projectApi = {
     const formData = new FormData()
     formData.append('video_file', data.video_file)
     formData.append('project_name', data.project_name)
+    
+    if (data.danmaku_file) {
+      formData.append('danmaku_file', data.danmaku_file)
+    }
+    if (data.danmaku_source_type) {
+      formData.append('danmaku_source_type', data.danmaku_source_type)
+    }
 
     const result = await api.post('projects/upload', formData, {
       headers: {
