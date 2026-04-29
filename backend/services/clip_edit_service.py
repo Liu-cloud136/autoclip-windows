@@ -304,6 +304,7 @@ class ClipEditService:
                     'original_clip_title': clip.title,
                     'original_clip_score': clip.score,
                     'original_clip_description': clip.description,
+                    'original_clip_thumbnail': clip.thumbnail_path,
                 }
             )
             
@@ -578,6 +579,10 @@ class ClipEditService:
         Returns:
             片段响应
         """
+        metadata = segment.segment_metadata or {}
+        original_clip_title = metadata.get('original_clip_title')
+        original_clip_thumbnail = metadata.get('original_clip_thumbnail')
+        
         return EditSegmentResponse(
             id=segment.id,
             session_id=segment.session_id,
@@ -591,6 +596,13 @@ class ClipEditService:
             segment_metadata=segment.segment_metadata or {},
             created_at=segment.created_at,
             updated_at=segment.updated_at,
+            # 前端兼容性字段
+            start_time=segment.original_start_time,
+            end_time=segment.original_end_time,
+            segment_order=segment.order_index,
+            original_clip_title=original_clip_title,
+            original_clip_thumbnail=original_clip_thumbnail,
+            thumbnail_path=original_clip_thumbnail,
         )
     
     async def generate_merged_video(
@@ -725,7 +737,7 @@ class ClipEditService:
                 'message': f'生成视频失败: {str(e)}'
             }
     
-    def create_or_get_default_session(self, project_id: str) -> ClipEditSession:
+    def create_or_get_default_session(self, project_id: str) -> tuple[ClipEditSession, bool]:
         """
         创建或获取项目的默认编辑会话
         
@@ -733,15 +745,15 @@ class ClipEditService:
             project_id: 项目ID
             
         Returns:
-            编辑会话
+            (编辑会话, 是否是新创建的)
         """
         existing_session = self.session_repo.get_latest_by_project(project_id)
         if existing_session:
-            return existing_session
+            return existing_session, False
         
         session_data = EditSessionCreate(
             name="默认编辑会话",
             project_id=project_id,
             description="自动创建的默认编辑会话"
         )
-        return self.create_session(session_data)
+        return self.create_session(session_data), True

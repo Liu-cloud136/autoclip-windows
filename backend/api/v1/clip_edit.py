@@ -21,6 +21,9 @@ from schemas.clip_edit import (
     EditSegmentResponse,
     ReorderSegmentsRequest,
     AddClipsToSessionRequest,
+    AddClipsToSessionResponse,
+    GetSessionResponse,
+    GetOrCreateDefaultSessionResponse,
     CropSegmentRequest,
     SplitSegmentRequest,
     MergeSegmentsRequest,
@@ -89,7 +92,7 @@ async def create_edit_session(
         raise HTTPException(status_code=500, detail=f"创建编辑会话失败: {str(e)}")
 
 
-@router.get("/sessions/{session_id}", response_model=EditSessionResponse)
+@router.get("/sessions/{session_id}", response_model=GetSessionResponse)
 async def get_edit_session(
     session_id: str,
     edit_service: ClipEditService = Depends(get_edit_service)
@@ -112,7 +115,12 @@ async def get_edit_session(
         if not session:
             raise HTTPException(status_code=404, detail="编辑会话不存在")
         
-        return edit_service.convert_to_response(session)
+        session_response = edit_service.convert_to_response(session)
+        
+        return GetSessionResponse(
+            success=True,
+            session=session_response,
+        )
         
     except HTTPException:
         raise
@@ -173,7 +181,7 @@ async def get_project_sessions(
         raise HTTPException(status_code=500, detail=f"获取项目编辑会话失败: {str(e)}")
 
 
-@router.post("/projects/{project_id}/default-session/", response_model=EditSessionResponse)
+@router.post("/projects/{project_id}/default-session/", response_model=GetOrCreateDefaultSessionResponse)
 async def get_or_create_default_session(
     project_id: str,
     edit_service: ClipEditService = Depends(get_edit_service)
@@ -189,8 +197,14 @@ async def get_or_create_default_session(
         默认编辑会话信息
     """
     try:
-        session = edit_service.create_or_get_default_session(project_id)
-        return edit_service.convert_to_response(session)
+        session, is_new = edit_service.create_or_get_default_session(project_id)
+        session_response = edit_service.convert_to_response(session)
+        
+        return GetOrCreateDefaultSessionResponse(
+            success=True,
+            session=session_response,
+            is_new=is_new,
+        )
         
     except Exception as e:
         logger.error(f"获取或创建默认会话失败: {e}")
@@ -318,7 +332,7 @@ async def add_segment(
         raise HTTPException(status_code=500, detail=f"添加片段失败: {str(e)}")
 
 
-@router.post("/sessions/{session_id}/add-clips/", response_model=List[EditSegmentResponse])
+@router.post("/sessions/{session_id}/add-clips/", response_model=AddClipsToSessionResponse)
 async def add_clips_to_session(
     session_id: str,
     request: AddClipsToSessionRequest,
@@ -333,7 +347,7 @@ async def add_clips_to_session(
         edit_service: 编辑服务实例
         
     Returns:
-        创建的片段列表
+        添加结果
     """
     try:
         segments = edit_service.add_clips_to_session(
@@ -342,23 +356,13 @@ async def add_clips_to_session(
             request.insert_position
         )
         
-        return [
-            EditSegmentResponse(
-                id=s.id,
-                session_id=s.session_id,
-                segment_type=s.segment_type,
-                original_start_time=s.original_start_time,
-                original_end_time=s.original_end_time,
-                output_start_time=s.output_start_time,
-                duration=s.duration,
-                order_index=s.order_index,
-                original_clip_id=s.original_clip_id,
-                segment_metadata=s.segment_metadata or {},
-                created_at=s.created_at,
-                updated_at=s.updated_at,
-            )
-            for s in segments
-        ]
+        segment_responses = [edit_service._convert_segment_to_response(s) for s in segments]
+        
+        return AddClipsToSessionResponse(
+            success=True,
+            segments=segment_responses,
+            added_count=len(segment_responses),
+        )
         
     except Exception as e:
         logger.error(f"添加切片到会话失败: {e}")

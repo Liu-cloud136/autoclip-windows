@@ -98,6 +98,14 @@ class EditSegmentResponse(BaseSchema):
     segment_metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="片段元数据")
     created_at: datetime = Field(description="创建时间")
     updated_at: datetime = Field(description="更新时间")
+    
+    # 前端兼容性字段
+    start_time: float = Field(description="开始时间（秒，兼容字段）")
+    end_time: float = Field(description="结束时间（秒，兼容字段）")
+    segment_order: int = Field(description="排序索引（兼容字段）")
+    original_clip_title: Optional[str] = Field(default=None, description="原始切片标题（从元数据中提取）")
+    original_clip_thumbnail: Optional[str] = Field(default=None, description="原始切片缩略图路径（从元数据中提取）")
+    thumbnail_path: Optional[str] = Field(default=None, description="缩略图路径（兼容字段）")
 
 
 # Edit Session Schemas
@@ -231,6 +239,26 @@ class GenerateVideoResponse(BaseSchema):
     session_id: str = Field(description="编辑会话ID")
     task_id: Optional[str] = Field(default=None, description="任务ID（如果异步处理）")
     message: str = Field(description="状态消息")
+
+
+class AddClipsToSessionResponse(BaseSchema):
+    """添加切片到会话响应 schema"""
+    success: bool = Field(description="是否成功")
+    segments: List[EditSegmentResponse] = Field(default_factory=list, description="添加的片段列表")
+    added_count: int = Field(description="实际添加的片段数量")
+
+
+class GetSessionResponse(BaseSchema):
+    """获取编辑会话响应 schema"""
+    success: bool = Field(description="是否成功")
+    session: EditSessionResponse = Field(description="编辑会话信息")
+
+
+class GetOrCreateDefaultSessionResponse(BaseSchema):
+    """获取或创建默认编辑会话响应 schema"""
+    success: bool = Field(description="是否成功")
+    session: EditSessionResponse = Field(description="编辑会话信息")
+    is_new: bool = Field(description="是否是新创建的会话")
 
 
 class SplitSegmentRequest(BaseSchema):
