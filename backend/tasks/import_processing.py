@@ -117,10 +117,18 @@ def process_import_task(self, project_id: str, video_path: str, srt_file_path: O
         logger.info(f"更新项目 {project_id} 状态为处理中...")
         project_service.update_project_status(project_id, "processing")
         db.commit()  # 一次性提交状态更新
+        
+        # 确保事务提交后的数据对其他进程可见
+        # SQLite在WAL模式下可能需要短暂等待确保数据持久化
+        import time
+        time.sleep(0.1)
+        
         self.update_state(state='PROGRESS', meta={'progress': 50, 'message': '启动处理流程...'})
 
         # 4. 启动处理流程
         try:
+            # 重新获取项目，确保状态已更新
+            db.refresh(project) if project else None
             project = project_service.get(project_id)
             if not project:
                 logger.warning(f"项目 {project_id} 不存在，跳过启动处理流程")
@@ -138,6 +146,8 @@ def process_import_task(self, project_id: str, video_path: str, srt_file_path: O
                     'message': '项目已完成，跳过启动处理流程'
                 }
 
+            logger.info(f"项目 {project_id} 状态验证通过，当前状态: {project.status.value}，准备提交处理任务...")
+            
             task_result = submit_video_pipeline_task(
                 project_id=project_id,
                 input_video_path=video_path,
