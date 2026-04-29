@@ -15,6 +15,8 @@ from utils.text_processor import TextProcessor
 from core.unified_config import get_prompt_files, get_config, get_processing_config
 from core.step_config import StepType
 from services.concurrency_manager import with_async_concurrency_limit
+from services.danmaku_score_service import DanmakuScoreService, load_danmaku_analysis_from_file
+from utils.danmaku_analyzer import DanmakuAnalysisResult
 
 logger = logging.getLogger(__name__)
 
@@ -26,27 +28,40 @@ class ClipScorer:
                  max_workers: int = 3,
                  enable_checkpoint: bool = True,
                  metadata_dir: Optional[Path] = None,
-                 max_retries: int = 2) -> None:
+                 max_retries: int = 2,
+                 danmaku_analysis: Optional[DanmakuAnalysisResult] = None,
+                 danmaku_score_weight: float = 0.3) -> None:
         self.llm_client = LLMClient()
         self.step_aware_llm_client = get_step_aware_llm_client()
         self.text_processor = TextProcessor()
         self.progress_callback = progress_callback
-        self.max_workers = max_workers  # 并发线程数
-        self.enable_checkpoint = enable_checkpoint  # 是否启用断点续传
-        self.max_retries = max_retries  # 最大重试次数
+        self.max_workers = max_workers
+        self.enable_checkpoint = enable_checkpoint
+        self.max_retries = max_retries
+        
         if metadata_dir is None:
             config = get_config()
             metadata_dir = config.paths.output_dir / "metadata"
         self.metadata_dir = Path(metadata_dir)
 
-        # 加载提示词
         prompt_files_to_use = prompt_files if prompt_files is not None else get_prompt_files()
         with open(prompt_files_to_use['scoring'], 'r', encoding='utf-8') as f:
             self.scoring_prompt = f.read()
         
-        # 创建用于存放LLM原始输出的目录
         self.llm_raw_output_dir = self.metadata_dir / "step3_llm_raw_output"
         self.llm_raw_output_dir.mkdir(parents=True, exist_ok=True)
+        
+        self.danmaku_analysis = danmaku_analysis
+        self.danmaku_score_weight = danmaku_score_weight
+        
+        if danmaku_analysis:
+            self.danmaku_score_service = DanmakuScoreService(
+                danmaku_total_weight=danmaku_score_weight
+            )
+            logger.info(f"弹幕评分功能已启用，权重: {danmaku_score_weight}")
+        else:
+            self.danmaku_score_service = None
+            logger.info("弹幕评分功能未启用（未提供弹幕分析结果）")
     
     def _validate_llm_response(self, parsed_list: List[Dict], expected_count: int) -> tuple[bool, List[str]]:
         """
@@ -355,7 +370,6 @@ class ClipScorer:
             logger.error(f"LLM返回的评分结果数量与输入不匹配。输入: {len(clips)}, 输出: {len(parsed_list)}")
             logger.warning(f"使用部分结果，缺失的将设置默认值")
 
-        # 将评分结果合并回原始的clips数据
         for i, original_clip in enumerate(clips):
             if i < len(parsed_list):
                 llm_result = parsed_list[i]
@@ -365,19 +379,45 @@ class ClipScorer:
                     logger.warning(f"LLM返回的某个结果缺少score: {llm_result}")
                     original_clip['final_score'] = 0
                 else:
-                    # 评分现在是0-100的整数
                     original_clip['final_score'] = int(round(float(score)))
-                    # 安全地获取outline标题用于日志显示
                     outline = original_clip.get('outline', {})
                     if isinstance(outline, dict):
                         title = outline.get('title', '未知标题')
                     else:
                         title = str(outline)
-                    logger.info(f"  > 评分成功: {title[:20]}... [分数: {score}]")
+                    logger.info(f"  > 评分成功: {title[:20]}... [LLM分数: {score}]")
             else:
-                # LLM没有返回这个clip的结果，设置默认值
                 logger.warning(f"LLM未返回第{i+1}个clip的评分结果，使用默认值")
                 original_clip['final_score'] = 0
+
+        if self.danmaku_score_service and self.danmaku_analysis:
+            logger.info("开始使用弹幕评分增强切片评分...")
+            for i, original_clip in enumerate(clips):
+                original_llm_score = original_clip.get('final_score', 50)
+                
+                enhanced_clip = self.danmaku_score_service.enhance_clip_with_danmaku_score(
+                    original_clip,
+                    self.danmaku_analysis
+                )
+                
+                for key, value in enhanced_clip.items():
+                    original_clip[key] = value
+                
+                outline = original_clip.get('outline', {})
+                if isinstance(outline, dict):
+                    title = outline.get('title', '未知标题')
+                else:
+                    title = str(outline)
+                
+                danmaku_score_breakdown = original_clip.get('danmaku_score', {})
+                danmaku_total = danmaku_score_breakdown.get('total_danmaku_score', 0)
+                
+                logger.info(
+                    f"  > 弹幕评分增强: {title[:20]}... "
+                    f"[LLM分数: {original_llm_score} -> "
+                    f"最终分数: {original_clip['final_score']} "
+                    f"(弹幕贡献: {danmaku_total:.2f}]"
+                )
 
         return clips
 
@@ -459,7 +499,9 @@ class ClipScorer:
 
 def run_step3_scoring(timeline_path: Path, metadata_dir: Path = None, output_path: Optional[Path] = None,
                      prompt_files: Dict = None, progress_callback: Optional[Callable[[int, str], None]] = None,
-                     max_workers: int = 3, enable_checkpoint: bool = True) -> List[Dict]:
+                     max_workers: int = 3, enable_checkpoint: bool = True,
+                     danmaku_analysis: Optional[DanmakuAnalysisResult] = None,
+                     danmaku_score_weight: float = 0.3) -> List[Dict]:
     """
     运行Step 3: 内容评分与筛选（支持并发处理、断点续传和进度回调）
 
@@ -471,35 +513,37 @@ def run_step3_scoring(timeline_path: Path, metadata_dir: Path = None, output_pat
         progress_callback: 进度回调函数 (progress: int, message: str) -> None
         max_workers: 并发线程数，默认为3
         enable_checkpoint: 是否启用断点续传，默认为True
+        danmaku_analysis: 弹幕分析结果（可选），用于弹幕评分增强
+        danmaku_score_weight: 弹幕评分在总分中的权重（0-1），默认为0.3
 
     Returns:
         高分切片列表
     """
-    # 加载时间线数据
     with open(timeline_path, 'r', encoding='utf-8') as f:
         timeline_data = json.load(f)
 
-    # 创建评分器（启用并发和断点续传）
-    scorer = ClipScorer(prompt_files, progress_callback, max_workers=max_workers,
-                       enable_checkpoint=enable_checkpoint, metadata_dir=metadata_dir)
+    scorer = ClipScorer(
+        prompt_files, 
+        progress_callback, 
+        max_workers=max_workers,
+        enable_checkpoint=enable_checkpoint, 
+        metadata_dir=metadata_dir,
+        danmaku_analysis=danmaku_analysis,
+        danmaku_score_weight=danmaku_score_weight
+    )
 
-    # 评分
     scored_clips = scorer.score_clips(timeline_data)
 
-    # 筛选高分切片
     processing_config = get_processing_config()
     high_score_clips = [clip for clip in scored_clips if clip['final_score'] >= processing_config.min_score_threshold]
 
-    # 保存结果
     if metadata_dir is None:
         config = get_config()
         metadata_dir = config.paths.output_dir / "metadata"
 
-    # 保存所有评分后的片段（用于调试和分析）
     all_scored_path = metadata_dir / "step3_all_scored.json"
     scorer.save_scores(scored_clips, all_scored_path)
 
-    # 保存筛选后的高分片段（用于后续步骤）
     if output_path is None:
         output_path = metadata_dir / "step3_high_score_clips.json"
 

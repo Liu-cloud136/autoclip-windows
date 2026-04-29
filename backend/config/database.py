@@ -1,12 +1,31 @@
 from pathlib import Path
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+def _detect_project_root() -> Path:
+    """自动检测项目根目录"""
+    current_path = Path(__file__).parent.parent
+    
+    while current_path.parent != current_path:
+        if (current_path.parent / "frontend").exists() and (current_path.parent / "backend").exists():
+            return current_path.parent
+        current_path = current_path.parent
+    
+    return Path(__file__).parent.parent.parent
+
+
+def _get_default_database_url() -> str:
+    """获取默认的数据库URL（绝对路径）"""
+    project_root = _detect_project_root()
+    db_path = project_root / "data" / "autoclip.db"
+    return f"sqlite:///{db_path}"
 
 
 class DatabaseConfig(BaseModel):
     """数据库配置"""
-    url: str = Field(default="sqlite:///./data/autoclip.db", description="数据库连接URL")
+    url: str = Field(default_factory=_get_default_database_url, description="数据库连接URL")
     echo: bool = Field(default=False, description="是否打印SQL语句")
     pool_size: int = Field(default=20, description="连接池大小")
     max_overflow: int = Field(default=30, description="最大溢出连接数")
@@ -17,6 +36,22 @@ class DatabaseConfig(BaseModel):
         if not v:
             raise ValueError('数据库URL不能为空')
         return v
+    
+    @model_validator(mode='after')
+    def ensure_absolute_path(self) -> 'DatabaseConfig':
+        """确保数据库URL使用绝对路径"""
+        url = self.url
+        
+        if url.startswith("sqlite:///"):
+            db_path_str = url[len("sqlite:///"):]
+            db_path = Path(db_path_str)
+            
+            if not db_path.is_absolute():
+                project_root = _detect_project_root()
+                absolute_db_path = project_root / db_path_str
+                self.url = f"sqlite:///{absolute_db_path}"
+        
+        return self
     
     @field_validator('pool_size')
     @classmethod

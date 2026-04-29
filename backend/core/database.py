@@ -5,11 +5,27 @@
 """
 
 import os
+from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool, QueuePool
 from typing import Generator
 from models.base import Base
+
+# 确保数据目录存在
+def _ensure_data_directory():
+    """确保数据目录存在"""
+    try:
+        from .path_utils import get_data_directory
+        data_dir = get_data_directory()
+        return data_dir
+    except ImportError:
+        # 如果导入失败，尝试从当前文件路径查找项目根目录
+        current_path = Path(__file__).parent  # backend/core/
+        project_root = current_path.parent.parent  # 项目根目录
+        data_dir = project_root / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        return data_dir
 
 # 数据库配置
 # 优先使用环境变量，否则使用配置函数获取正确的路径
@@ -20,20 +36,37 @@ if not DATABASE_URL:
         from .config import get_database_url
         DATABASE_URL = get_database_url()
     except ImportError:
-        # 如果导入失败，使用默认的相对路径（但会在backend目录下）
-        DATABASE_URL = "sqlite:///./data/autoclip.db"
+        # 如果导入失败，使用绝对路径
+        data_dir = _ensure_data_directory()
+        db_path = data_dir / "autoclip.db"
+        DATABASE_URL = f"sqlite:///{db_path}"
         import warnings
         warnings.warn(
-            "使用默认数据库路径，可能导致数据存储在backend目录下。"
-            "建议检查配置。",
+            f"使用备用数据库路径: {DATABASE_URL}",
             RuntimeWarning
         )
 
+# 在创建引擎之前确保数据库目录存在
+if "sqlite" in DATABASE_URL:
+    # 解析 SQLite 路径并确保目录存在
+    sqlite_prefix = "sqlite:///"
+    if DATABASE_URL.startswith(sqlite_prefix):
+        db_path_str = DATABASE_URL[len(sqlite_prefix):]
+        db_path = Path(db_path_str)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+
+def _enable_sqlite_wal(dbapi_connection, connection_record):
+    """启用SQLite的WAL模式以支持更好的并发"""
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA busy_timeout=30000")
+    cursor.close()
+
 # 创建数据库引擎
 if "sqlite" in DATABASE_URL:
-    # SQLite配置 - 优化连接池
-    # SQLite使用StaticPool是最合适的，因为SQLite不支持真正的连接池
-    # StaticPool维护单个连接，适合SQLite的单线程写入特性
+    # SQLite配置 - 优化连接池和并发
+    # 启用WAL模式以支持更好的多进程并发
     engine = create_engine(
         DATABASE_URL,
         connect_args={
@@ -45,6 +78,10 @@ if "sqlite" in DATABASE_URL:
         pool_pre_ping=True,              # 连接健康检查，避免使用失效的连接
         echo=False
     )
+    
+    # 注册事件监听器以在每个连接上启用WAL模式
+    from sqlalchemy import event
+    event.listen(engine, "connect", _enable_sqlite_wal)
 elif "postgresql" in DATABASE_URL or "postgres" in DATABASE_URL:
     # PostgreSQL配置 - 生产环境优化
     # 使用QueuePool进行连接池管理，适合高并发场景
